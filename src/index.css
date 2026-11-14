@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Harmonious artisanal pizza background for the main workspace */
+.app-pizza-backdrop {
+  background-color: #faf6f0;
+  background-image:
+    linear-gradient(rgba(250, 246, 240, 0.86), rgba(247, 241, 232, 0.90)),
+    url('/src/assets/images/pizza_artisan_backdrop_1794612473764.jpg');
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+}
+
+/* WhatsApp chat background featuring a soft warm pizza backdrop with readable scrim */
+.wa-chat-bg {
+  background-color: #efe7da;
+  background-image:
+    linear-gradient(rgba(244, 237, 226, 0.78), rgba(239, 231, 218, 0.84)),
+    url('/src/assets/images/pizza_artisan_backdrop_1794612473764.jpg');
+  background-size: cover;
+  background-position: center;
+}
+
+/* Custom thin scrollbars for dense SaaS panels */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(120, 113, 108, 0.38);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(87, 83, 78, 0.6);
+}

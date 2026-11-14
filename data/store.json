@@ -1,0 +1,690 @@
+{
+  "settings": {
+    "pizzeriaName": "Pizzaria Bella Fornalha",
+    "whatsappPhoneDisplay": "+55 (11) 98420-1100",
+    "pixKey": "pagamentos@bellafornalha.com.br",
+    "deliveryFee": 8,
+    "averagePrepMinutes": 35,
+    "aiPersonaTone": "Cordial, ágil, objetivo e acolhedor, usando português brasileiro natural como um atendente experiente de pizzaria artesanal.",
+    "autoNotifyOrderUpdates": true,
+    "whatsappVerifyToken": "fornodesk_verify_2026",
+    "whatsappPhoneNumberId": "104829301928374",
+    "telegramBotToken": "",
+    "telegramChatId": "",
+    "telegramAutoBackupOnPayment": false,
+    "paymentSound": "cozinha",
+    "lastTelegramBackupStatus": "Falha no envio: Bot Token do Telegram não configurado. Informe o token do @BotFather em Integração & IA."
+  },
+  "menu": [
+    {
+      "id": "pizza-margherita",
+      "name": "Margherita Napoletana",
+      "category": "Tradicionais",
+      "description": "Molho de tomate San Marzano, fior di latte fresca, manjericão e azeite extravirgem.",
+      "prices": {
+        "media": 54,
+        "grande": 68,
+        "gigante": 84
+      },
+      "imageUrl": "/src/assets/images/pizza_margherita_napoletana_1794590306126.jpg",
+      "available": true
+    },
+    {
+      "id": "pizza-calabresa",
+      "name": "Calabresa Artesanal",
+      "category": "Tradicionais",
+      "description": "Calabresa defumada fatiada fina, cebola roxa caramelizada, azeitonas pretas e orégano.",
+      "prices": {
+        "media": 52,
+        "grande": 64,
+        "gigante": 79
+      },
+      "imageUrl": "/src/assets/images/pizza_calabresa_artesanal_1794590305648.jpg",
+      "available": true
+    },
+    {
+      "id": "pizza-quatro-queijos",
+      "name": "Quatro Queijos da Casa",
+      "category": "Especiais",
+      "description": "Mozzarella artesanal, Catupiry original, gorgonzola doce e parmesão gratinado.",
+      "prices": {
+        "media": 58,
+        "grande": 74,
+        "gigante": 89
+      },
+      "imageUrl": "/src/assets/images/pizza_quatro_queijos_1794590306727.jpg",
+      "available": true
+    },
+    {
+      "id": "pizza-frango-catupiry",
+      "name": "Frango com Catupiry",
+      "category": "Tradicionais",
+      "description": "Peito de frango desfiado temperado no alho-poró coberto com Catupiry original.",
+      "prices": {
+        "media": 55,
+        "grande": 69,
+        "gigante": 85
+      },
+      "available": true
+    },
+    {
+      "id": "pizza-pepperoni",
+      "name": "Pepperoni Crocante & Mel Picante",
+      "category": "Especiais",
+      "description": "Pepperoni italiano curado, mozzarella de búfala e fio opcional de mel picante.",
+      "prices": {
+        "media": 62,
+        "grande": 78,
+        "gigante": 94
+      },
+      "available": true
+    },
+    {
+      "id": "pizza-portuguesa",
+      "name": "Portuguesa Clássica",
+      "category": "Tradicionais",
+      "description": "Presunto cozido, ovos caipiras, cebola, ervilhas frescas, azeitonas e mozzarella.",
+      "prices": {
+        "media": 56,
+        "grande": 70,
+        "gigante": 86
+      },
+      "available": true
+    },
+    {
+      "id": "pizza-chocolate-morango",
+      "name": "Chocolate Belga com Morangos",
+      "category": "Doces",
+      "description": "Ganache de chocolate meio amargo 54% com morangos frescos fatiados.",
+      "prices": {
+        "media": 49,
+        "grande": 62
+      },
+      "available": true
+    },
+    {
+      "id": "bebida-coca-2l",
+      "name": "Coca-Cola Original 2L",
+      "category": "Bebidas",
+      "description": "Garrafa 2 litros bem gelada.",
+      "prices": {
+        "grande": 16
+      },
+      "available": true
+    },
+    {
+      "id": "bebida-guarana-2l",
+      "name": "Guaraná Antarctica 2L",
+      "category": "Bebidas",
+      "description": "Garrafa 2 litros bem gelada.",
+      "prices": {
+        "grande": 14
+      },
+      "available": true
+    }
+  ],
+  "customers": [
+    {
+      "id": "cust-92340f04",
+      "phone": "+55 11 98111-2233",
+      "name": "Lucas Almeida",
+      "address": "Rua Augusta, 1420",
+      "neighborhood": "Consolação",
+      "complement": "apto 42",
+      "notes": "",
+      "autoRegistered": true,
+      "registeredAt": "2026-11-13T23:30:45.529Z",
+      "totalOrders": 1,
+      "totalSpent": 72
+    },
+    {
+      "id": "cust-06157389",
+      "phone": "+55 11 99988-7766",
+      "name": "Contato Novo (+55 11 99988-7766)",
+      "address": "",
+      "neighborhood": "",
+      "complement": "",
+      "notes": "",
+      "autoRegistered": false,
+      "registeredAt": "2026-11-13T23:26:53.856Z",
+      "totalOrders": 0,
+      "totalSpent": 0
+    },
+    {
+      "id": "cust-ffd391d3",
+      "phone": "+55 91985782435",
+      "name": "Contato Novo (+55 91985782435)",
+      "address": "",
+      "neighborhood": "",
+      "complement": "",
+      "notes": "",
+      "autoRegistered": false,
+      "registeredAt": "2026-11-13T23:22:33.563Z",
+      "totalOrders": 0,
+      "totalSpent": 0
+    },
+    {
+      "id": "cust-1",
+      "phone": "+55 11 99124-8820",
+      "name": "Mariana Costa",
+      "address": "Rua Oscar Freire, 845",
+      "neighborhood": "Jardins",
+      "complement": "Apto 72, Bloco B",
+      "notes": "Sem cebola na pizza de calabresa quando pedir meio a meio.",
+      "autoRegistered": true,
+      "registeredAt": "2026-11-13T20:18:57.649Z",
+      "totalOrders": 4,
+      "totalSpent": 342
+    },
+    {
+      "id": "cust-2",
+      "phone": "+55 11 98741-5509",
+      "name": "Rafael Mendes",
+      "address": "Av. Paulista, 1910",
+      "neighborhood": "Bela Vista",
+      "complement": "Portaria 2 - Interfone 114",
+      "notes": "Prefere pagamento via PIX.",
+      "autoRegistered": true,
+      "registeredAt": "2026-11-13T22:33:57.649Z",
+      "totalOrders": 1,
+      "totalSpent": 98
+    },
+    {
+      "id": "cust-3",
+      "phone": "+55 11 97330-2190",
+      "name": "Contato Novo (+55 11 97330-2190)",
+      "address": "",
+      "neighborhood": "",
+      "complement": "",
+      "notes": "",
+      "autoRegistered": false,
+      "registeredAt": "2026-11-13T23:13:57.649Z",
+      "totalOrders": 0,
+      "totalSpent": 0
+    }
+  ],
+  "conversations": [
+    {
+      "id": "conv-92ea6944",
+      "customerId": "cust-92340f04",
+      "aiEnabled": true,
+      "unreadCount": 0,
+      "lastMessageAt": "2026-11-13T23:40:34.708Z",
+      "lastMessagePreview": "Tudo certo, Lucas! Pedido confirmado.",
+      "handoffRequested": false
+    },
+    {
+      "id": "conv-740efa75",
+      "customerId": "cust-06157389",
+      "aiEnabled": true,
+      "unreadCount": 0,
+      "lastMessageAt": "2026-11-13T23:27:03.637Z",
+      "lastMessagePreview": "Olá! Seja muito bem-vindo à *Pizzaria Bella Fornalha*! 🍕🔥",
+      "handoffRequested": false
+    },
+    {
+      "id": "conv-9cc86b3f",
+      "customerId": "cust-ffd391d3",
+      "aiEnabled": true,
+      "unreadCount": 0,
+      "lastMessageAt": "2026-11-13T23:27:23.889Z",
+      "lastMessagePreview": "Boa noite! Seja bem-vindo(a) à Pizzaria Bella Fornalha! 🍕🔥",
+      "handoffRequested": false
+    },
+    {
+      "id": "conv-1",
+      "customerId": "cust-1",
+      "aiEnabled": true,
+      "unreadCount": 0,
+      "lastMessageAt": "2026-11-13T23:15:57.649Z",
+      "lastMessagePreview": "Sua Margherita já entrou no forno a lenha!",
+      "handoffRequested": false
+    },
+    {
+      "id": "conv-2",
+      "customerId": "cust-2",
+      "aiEnabled": true,
+      "unreadCount": 1,
+      "lastMessageAt": "2026-11-13T23:14:57.649Z",
+      "lastMessagePreview": "PIX gerado! Assim que pagar, iniciamos o preparo.",
+      "handoffRequested": false
+    },
+    {
+      "id": "conv-3",
+      "customerId": "cust-3",
+      "aiEnabled": true,
+      "unreadCount": 1,
+      "lastMessageAt": "2026-11-13T23:17:57.649Z",
+      "lastMessagePreview": "Oi! Boa noite, vocês estão entregando agora?",
+      "handoffRequested": false
+    }
+  ],
+  "messages": [
+    {
+      "id": "msg-101",
+      "conversationId": "conv-1",
+      "sender": "customer",
+      "text": "Oi! Quero pedir uma Margherita grande e uma Coca 2L para entregar no meu endereço de sempre.",
+      "timestamp": "2026-11-13T23:02:57.649Z",
+      "status": "read"
+    },
+    {
+      "id": "msg-102",
+      "conversationId": "conv-1",
+      "sender": "ai",
+      "text": "Olá, Mariana! Tudo ótimo por aqui. Já localizei seu cadastro na Rua Oscar Freire, 845 (Apto 72, Bloco B).\n\nFicou 1x Pizza Grande Margherita Napoletana (R$ 68,00) + 1x Coca-Cola 2L (R$ 16,00) + entrega (R$ 8,00) = R$ 92,00. Segue o código PIX:",
+      "timestamp": "2026-11-13T23:03:57.649Z",
+      "status": "read",
+      "aiActionLabel": "Pedido #2048 criado · PIX gerado"
+    },
+    {
+      "id": "msg-103",
+      "conversationId": "conv-1",
+      "sender": "ai",
+      "text": "Pagamento PIX de R$ 92,00 confirmado com sucesso! Já enviamos seu pedido #2048 para a cozinha. Acompanhe o rastreio ao vivo aqui no chat:",
+      "timestamp": "2026-11-13T23:06:57.649Z",
+      "status": "read",
+      "aiActionLabel": "Pagamento confirmado · Rastreio ativo",
+      "attachment": {
+        "type": "tracking",
+        "orderId": "ord-2048"
+      }
+    },
+    {
+      "id": "msg-104",
+      "conversationId": "conv-1",
+      "sender": "ai",
+      "text": "Atualização do seu pedido #2048: Sua Margherita já entrou no forno a lenha! Previsão de chegada em cerca de 18 minutos.",
+      "timestamp": "2026-11-13T23:15:57.649Z",
+      "status": "read",
+      "aiActionLabel": "Rastreio atualizado: No Forno"
+    },
+    {
+      "id": "msg-201",
+      "conversationId": "conv-2",
+      "sender": "customer",
+      "text": "Boa noite! Me chamo Rafael Mendes. Quero uma Quatro Queijos grande com borda de Catupiry para Av. Paulista, 1910 - Bela Vista, portaria 2 interfone 114. Vou pagar no PIX.",
+      "timestamp": "2026-11-13T23:13:57.649Z",
+      "status": "read"
+    },
+    {
+      "id": "msg-202",
+      "conversationId": "conv-2",
+      "sender": "ai",
+      "text": "Boa noite, Rafael! Seja muito bem-vindo à Pizzaria Bella Fornalha. Já realizei seu cadastro automático com o endereço da Av. Paulista, 1910.\n\nTotal do pedido #2049: R$ 98,00 (Pizza Grande Quatro Queijos R$ 74,00 + Borda Catupiry R$ 16,00 + Entrega R$ 8,00). Segue seu PIX para pagamento instantâneo:",
+      "timestamp": "2026-11-13T23:14:57.649Z",
+      "status": "delivered",
+      "aiActionLabel": "Cadastro automático + PIX gerado",
+      "attachment": {
+        "type": "payment",
+        "orderId": "ord-2049",
+        "orderCode": "#2049",
+        "payment": {
+          "method": "pix",
+          "status": "aguardando",
+          "amount": 98,
+          "pixCode": "00020126530014br.gov.bcb.pix0131pagamentos@bellafornalha.com.br520400005303986540598.005802BR5923PIZZARIA BELLA FORNALHA6009SAO PAULO62100506BF204963048453",
+          "transactionId": "PIX-BF2049",
+          "expiresAt": "2026-11-13T23:33:57.649Z"
+        }
+      }
+    },
+    {
+      "id": "msg-301",
+      "conversationId": "conv-3",
+      "sender": "customer",
+      "text": "Oi! Boa noite, vocês estão entregando agora? Queria ver o cardápio.",
+      "timestamp": "2026-11-13T23:17:57.649Z",
+      "status": "read"
+    },
+    {
+      "conversationId": "conv-9cc86b3f",
+      "sender": "customer",
+      "text": "oi boa noite",
+      "status": "read",
+      "id": "msg-42e1e42a",
+      "timestamp": "2026-11-13T23:22:49.672Z"
+    },
+    {
+      "conversationId": "conv-9cc86b3f",
+      "sender": "customer",
+      "text": "oi boa noite",
+      "status": "read",
+      "id": "msg-16f2e28d",
+      "timestamp": "2026-11-13T23:23:56.314Z"
+    },
+    {
+      "conversationId": "conv-740efa75",
+      "sender": "customer",
+      "text": "Oi, quero pedir uma pizza grande",
+      "status": "read",
+      "id": "msg-c3342444",
+      "timestamp": "2026-11-13T23:26:56.882Z"
+    },
+    {
+      "conversationId": "conv-740efa75",
+      "sender": "ai",
+      "text": "Olá! Seja muito bem-vindo à *Pizzaria Bella Fornalha*! 🍕🔥\n\nEnviei nosso cardápio visual logo abaixo para você dar uma olhada. Estes são os sabores no tamanho *Grande*:\n\n*Tradicionais:*\n• Calabresa Artesanal — R$ 64\n• Margherita Napoletana — R$ 68\n• Frango com Catupiry — R$ 69\n• Portuguesa Clássica — R$ 70\n\n*Especiais:*\n• Quatro Queijos da Casa — R$ 74\n• Pepperoni Crocante & Mel Picante — R$ 78\n\n*Doce:*\n• Chocolate Belga com Morangos — R$ 62\n\nVocê pode escolher 1 sabor ou fazer *meio a meio*! E se quiser borda recheada de Catupiry ou Cheddar, sai por +R$ 16 (a tradicional é grátis).\n\nQual sabor você gostaria de pedir hoje? 😊",
+      "status": "read",
+      "attachment": {
+        "type": "menu_highlight",
+        "items": [
+          {
+            "id": "pizza-margherita",
+            "name": "Margherita Napoletana",
+            "category": "Tradicionais",
+            "description": "Molho de tomate San Marzano, fior di latte fresca, manjericão e azeite extravirgem.",
+            "prices": {
+              "media": 54,
+              "grande": 68,
+              "gigante": 84
+            },
+            "imageUrl": "/src/assets/images/pizza_margherita_napoletana_1794590306126.jpg",
+            "available": true
+          },
+          {
+            "id": "pizza-calabresa",
+            "name": "Calabresa Artesanal",
+            "category": "Tradicionais",
+            "description": "Calabresa defumada fatiada fina, cebola roxa caramelizada, azeitonas pretas e orégano.",
+            "prices": {
+              "media": 52,
+              "grande": 64,
+              "gigante": 79
+            },
+            "imageUrl": "/src/assets/images/pizza_calabresa_artesanal_1794590305648.jpg",
+            "available": true
+          },
+          {
+            "id": "pizza-quatro-queijos",
+            "name": "Quatro Queijos da Casa",
+            "category": "Especiais",
+            "description": "Mozzarella artesanal, Catupiry original, gorgonzola doce e parmesão gratinado.",
+            "prices": {
+              "media": 58,
+              "grande": 74,
+              "gigante": 89
+            },
+            "imageUrl": "/src/assets/images/pizza_quatro_queijos_1794590306727.jpg",
+            "available": true
+          },
+          {
+            "id": "pizza-frango-catupiry",
+            "name": "Frango com Catupiry",
+            "category": "Tradicionais",
+            "description": "Peito de frango desfiado temperado no alho-poró coberto com Catupiry original.",
+            "prices": {
+              "media": 55,
+              "grande": 69,
+              "gigante": 85
+            },
+            "available": true
+          }
+        ]
+      },
+      "aiActionLabel": "Cardápio enviado",
+      "id": "msg-5a16c33b",
+      "timestamp": "2026-11-13T23:27:03.637Z"
+    },
+    {
+      "conversationId": "conv-9cc86b3f",
+      "sender": "customer",
+      "text": "oi boa noite",
+      "status": "read",
+      "id": "msg-9e609f48",
+      "timestamp": "2026-11-13T23:27:17.408Z"
+    },
+    {
+      "conversationId": "conv-9cc86b3f",
+      "sender": "ai",
+      "text": "Boa noite! Seja bem-vindo(a) à Pizzaria Bella Fornalha! 🍕🔥\n\nComo posso ajudar você hoje? Quer dar uma olhada no nosso cardápio ou já sabe qual pizza vai pedir?",
+      "status": "read",
+      "id": "msg-5be97a84",
+      "timestamp": "2026-11-13T23:27:23.889Z"
+    },
+    {
+      "conversationId": "conv-92ea6944",
+      "sender": "customer",
+      "text": "Oi boa noite! Quero pedir uma pizza grande",
+      "status": "read",
+      "id": "msg-1b8576fc",
+      "timestamp": "2026-11-13T23:30:45.530Z"
+    },
+    {
+      "conversationId": "conv-92ea6944",
+      "sender": "ai",
+      "text": "Boa noite! Seja bem-vindo(a) à Pizzaria Bella Fornalha! 🍕\n\nEnviei nosso cardápio visual logo acima para você escolher.\n\nTemos vários sabores deliciosos na pizza Grande (8 fatias):\n- *Calabresa Artesanal* — R$ 64,00\n- *Margherita Napoletana* — R$ 68,00\n- *Frango com Catupiry* — R$ 69,00\n- *Portuguesa Clássica* — R$ 70,00\n- *Quatro Queijos da Casa* — R$ 74,00\n- *Pepperoni Crocante & Mel Picante* — R$ 78,00\n- *Chocolate Belga com Morangos* — R$ 62,00\n\nVocê pode pedir inteira ou meio a meio, e se quiser, temos borda recheada de *Catupiry* ou *Cheddar* (+R$ 16,00).\n\nQual sabor você gostaria de pedir hoje? 😊",
+      "status": "read",
+      "attachment": {
+        "type": "menu_highlight",
+        "items": [
+          {
+            "id": "pizza-margherita",
+            "name": "Margherita Napoletana",
+            "category": "Tradicionais",
+            "description": "Molho de tomate San Marzano, fior di latte fresca, manjericão e azeite extravirgem.",
+            "prices": {
+              "media": 54,
+              "grande": 68,
+              "gigante": 84
+            },
+            "imageUrl": "/src/assets/images/pizza_margherita_napoletana_1794590306126.jpg",
+            "available": true
+          },
+          {
+            "id": "pizza-calabresa",
+            "name": "Calabresa Artesanal",
+            "category": "Tradicionais",
+            "description": "Calabresa defumada fatiada fina, cebola roxa caramelizada, azeitonas pretas e orégano.",
+            "prices": {
+              "media": 52,
+              "grande": 64,
+              "gigante": 79
+            },
+            "imageUrl": "/src/assets/images/pizza_calabresa_artesanal_1794590305648.jpg",
+            "available": true
+          },
+          {
+            "id": "pizza-quatro-queijos",
+            "name": "Quatro Queijos da Casa",
+            "category": "Especiais",
+            "description": "Mozzarella artesanal, Catupiry original, gorgonzola doce e parmesão gratinado.",
+            "prices": {
+              "media": 58,
+              "grande": 74,
+              "gigante": 89
+            },
+            "imageUrl": "/src/assets/images/pizza_quatro_queijos_1794590306727.jpg",
+            "available": true
+          },
+          {
+            "id": "pizza-frango-catupiry",
+            "name": "Frango com Catupiry",
+            "category": "Tradicionais",
+            "description": "Peito de frango desfiado temperado no alho-poró coberto com Catupiry original.",
+            "prices": {
+              "media": 55,
+              "grande": 69,
+              "gigante": 85
+            },
+            "available": true
+          }
+        ]
+      },
+      "aiActionLabel": "Cardápio enviado",
+      "id": "msg-e92c6ffd",
+      "timestamp": "2026-11-13T23:30:52.052Z"
+    },
+    {
+      "conversationId": "conv-92ea6944",
+      "sender": "customer",
+      "text": "Meu nome é Lucas Almeida, moro na Rua Augusta, 1420 apto 42 - Consolação. Quero 1 Calabresa grande no PIX",
+      "status": "read",
+      "id": "msg-9dcb3680",
+      "timestamp": "2026-11-13T23:39:01.638Z"
+    },
+    {
+      "conversationId": "conv-92ea6944",
+      "sender": "ai",
+      "text": "Tudo certo, Lucas! Pedido confirmado.\n\nSua pizza de Calabresa (Grande) foi enviada para o forno e nosso tempo médio de entrega é de 35 minutos.\n\nO valor total do pedido é *R$ 72,00* (já incluindo a taxa de entrega).\n\nComo você escolheu PIX, gerei o código abaixo para você realizar o pagamento com 1 clique (Copie e Cole):\n\n`00020126440014br.gov.bcb.pix0122PIX_BELLA_FORNALHA_123456789520400005303986540572.005802BR5915Pizzaria Bella Fornalha6013Sao Paulo-SP6304`\n\nO rastreio do seu pedido já está ativo. Assim que o pagamento for confirmado, te aviso por aqui! Qualquer coisa, é só chamar. 🍕",
+      "status": "read",
+      "attachment": {
+        "type": "payment",
+        "orderId": "ord-2052",
+        "orderCode": "#2052",
+        "payment": {
+          "method": "pix",
+          "status": "aguardando",
+          "amount": 72,
+          "pixCode": "00020126530014br.gov.bcb.pix0131pagamentos@bellafornalha.com.br520400005303986540572.005802BR5923PIZZARIA BELLA FORNALHA6009SAO PAULO62100506BF20526304FFA7",
+          "transactionId": "PIX-BF2052",
+          "expiresAt": "2026-11-14T00:00:33.393Z"
+        }
+      },
+      "aiActionLabel": "Cadastro automático atualizado · Pedido #2052 · Pagamento gerado",
+      "id": "msg-ba2b19ae",
+      "timestamp": "2026-11-13T23:40:34.708Z"
+    }
+  ],
+  "orders": [
+    {
+      "id": "ord-2052",
+      "code": "#2052",
+      "customerId": "cust-92340f04",
+      "conversationId": "conv-92ea6944",
+      "customerName": "Lucas Almeida",
+      "customerPhone": "+55 11 98111-2233",
+      "deliveryAddress": "Rua Augusta, 1420 - Consolação - (apto 42)",
+      "items": [
+        {
+          "menuItemId": "pizza-calabresa",
+          "name": "Calabresa Artesanal",
+          "size": "grande",
+          "crust": "Tradicional",
+          "quantity": 1,
+          "unitPrice": 64
+        }
+      ],
+      "subtotal": 64,
+      "deliveryFee": 8,
+      "total": 72,
+      "stage": "recebido",
+      "payment": {
+        "method": "pix",
+        "status": "aguardando",
+        "amount": 72,
+        "pixCode": "00020126530014br.gov.bcb.pix0131pagamentos@bellafornalha.com.br520400005303986540572.005802BR5923PIZZARIA BELLA FORNALHA6009SAO PAULO62100506BF20526304FFA7",
+        "transactionId": "PIX-BF2052",
+        "expiresAt": "2026-11-14T00:00:33.393Z"
+      },
+      "estimatedMinutes": 35,
+      "createdAt": "2026-11-13T23:40:33.393Z",
+      "updatedAt": "2026-11-13T23:40:33.393Z",
+      "timeline": [
+        {
+          "stage": "recebido",
+          "timestamp": "2026-11-13T23:40:33.393Z",
+          "note": "Pedido registrado. Aguardando confirmação de pagamento."
+        }
+      ]
+    },
+    {
+      "id": "ord-2048",
+      "code": "#2048",
+      "customerId": "cust-1",
+      "conversationId": "conv-1",
+      "customerName": "Mariana Costa",
+      "customerPhone": "+55 11 99124-8820",
+      "deliveryAddress": "Rua Oscar Freire, 845 - Jardins (Apto 72, Bloco B)",
+      "items": [
+        {
+          "menuItemId": "pizza-margherita",
+          "name": "Margherita Napoletana",
+          "size": "grande",
+          "crust": "Tradicional",
+          "quantity": 1,
+          "unitPrice": 68
+        },
+        {
+          "menuItemId": "bebida-coca-2l",
+          "name": "Coca-Cola Original 2L",
+          "size": "unico",
+          "quantity": 1,
+          "unitPrice": 16
+        }
+      ],
+      "subtotal": 84,
+      "deliveryFee": 8,
+      "total": 92,
+      "stage": "no_forno",
+      "payment": {
+        "method": "pix",
+        "status": "pago",
+        "amount": 92,
+        "transactionId": "PIX-BF2048",
+        "paidAt": "2026-11-13T23:06:57.649Z"
+      },
+      "estimatedMinutes": 18,
+      "createdAt": "2026-11-13T23:03:57.649Z",
+      "updatedAt": "2026-11-13T23:15:57.649Z",
+      "timeline": [
+        {
+          "stage": "recebido",
+          "timestamp": "2026-11-13T23:03:57.649Z",
+          "note": "Pedido confirmado automaticamente via WhatsApp"
+        },
+        {
+          "stage": "em_preparo",
+          "timestamp": "2026-11-13T23:08:57.649Z",
+          "note": "Massa aberta e montada na bancada"
+        },
+        {
+          "stage": "no_forno",
+          "timestamp": "2026-11-13T23:15:57.649Z",
+          "note": "Assando no forno a lenha a 430°C"
+        }
+      ]
+    },
+    {
+      "id": "ord-2049",
+      "code": "#2049",
+      "customerId": "cust-2",
+      "conversationId": "conv-2",
+      "customerName": "Rafael Mendes",
+      "customerPhone": "+55 11 98741-5509",
+      "deliveryAddress": "Av. Paulista, 1910 - Bela Vista (Portaria 2 - Interfone 114)",
+      "items": [
+        {
+          "menuItemId": "pizza-quatro-queijos",
+          "name": "Quatro Queijos da Casa",
+          "size": "grande",
+          "crust": "Catupiry (+R$ 16)",
+          "quantity": 1,
+          "unitPrice": 90
+        }
+      ],
+      "subtotal": 90,
+      "deliveryFee": 8,
+      "total": 98,
+      "stage": "recebido",
+      "payment": {
+        "method": "pix",
+        "status": "aguardando",
+        "amount": 98,
+        "pixCode": "00020126530014br.gov.bcb.pix0131pagamentos@bellafornalha.com.br520400005303986540598.005802BR5923PIZZARIA BELLA FORNALHA6009SAO PAULO62100506BF204963048453",
+        "transactionId": "PIX-BF2049",
+        "expiresAt": "2026-11-13T23:33:57.649Z"
+      },
+      "estimatedMinutes": 35,
+      "createdAt": "2026-11-13T23:14:57.649Z",
+      "updatedAt": "2026-11-13T23:14:57.649Z",
+      "timeline": [
+        {
+          "stage": "recebido",
+          "timestamp": "2026-11-13T23:14:57.649Z",
+          "note": "Aguardando confirmação do pagamento PIX"
+        }
+      ]
+    }
+  ]
+}
