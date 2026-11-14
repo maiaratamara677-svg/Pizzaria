@@ -123,6 +123,8 @@ export interface Conversation {
   handoffRequested: boolean;
 }
 
+export type BackupSchedule = 'manual' | 'hourly' | 'daily';
+
 export interface StoreSettings {
   pizzeriaName: string;
   whatsappPhoneDisplay: string;
@@ -138,6 +140,10 @@ export interface StoreSettings {
   telegramAutoBackupOnPayment: boolean;
   lastTelegramBackupAt?: string;
   lastTelegramBackupStatus?: string;
+  backupSchedule: BackupSchedule;
+  backupDailyTime: string;
+  lastScheduledBackupAt?: string;
+  lastScheduledBackupStatus?: string;
   paymentSound: PaymentSoundType;
 }
 

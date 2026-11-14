@@ -104,6 +104,8 @@ function createInitialData(): AppSnapshot {
     telegramBotToken: '',
     telegramChatId: '',
     telegramAutoBackupOnPayment: false,
+    backupSchedule: 'manual',
+    backupDailyTime: '23:55',
     paymentSound: 'cozinha',
   };
 
@@ -910,16 +912,83 @@ class PizzeriaStore {
         delete cleanPatch.averagePrepMinutes;
       }
     }
+    if (cleanPatch.backupSchedule !== undefined) {
+      if (!['manual', 'hourly', 'daily'].includes(String(cleanPatch.backupSchedule))) {
+        delete cleanPatch.backupSchedule;
+      }
+    }
+    if (cleanPatch.backupDailyTime !== undefined) {
+      if (
+        typeof cleanPatch.backupDailyTime !== 'string' ||
+        !/^([01]\d|2[0-3]):[0-5]\d$/.test(cleanPatch.backupDailyTime.trim())
+      ) {
+        delete cleanPatch.backupDailyTime;
+      } else {
+        cleanPatch.backupDailyTime = cleanPatch.backupDailyTime.trim();
+      }
+    }
     Object.assign(this.data.settings, cleanPatch);
     this.save();
     broadcastEvent('snapshot_update', this.data);
     return this.data.settings;
   }
 
+  saveLocalBackupFile(tag: string): string {
+    const backupsDir = path.join(DATA_DIR, 'backups');
+    if (!fs.existsSync(backupsDir)) {
+      fs.mkdirSync(backupsDir, { recursive: true });
+    }
+    const now = new Date();
+    const stamp = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+      .format(now)
+      .replace(', ', '-')
+      .replace(/:/g, '');
+    const safeTag = tag.replace(/[^a-z0-9_-]/gi, '').toLowerCase() || 'auto';
+    const filename = `fornodesk-backup-${safeTag}-${stamp}.json`;
+    const filePath = path.join(backupsDir, filename);
+    fs.writeFileSync(filePath, JSON.stringify(this.data, null, 2), 'utf-8');
+
+    // Keep at most 30 recent local backups
+    const files = fs
+      .readdirSync(backupsDir)
+      .filter((f) => f.endsWith('.json'))
+      .sort();
+    while (files.length > 30) {
+      const oldest = files.shift();
+      if (oldest) {
+        try {
+          fs.unlinkSync(path.join(backupsDir, oldest));
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
+    }
+
+    return filename;
+  }
+
   recordTelegramBackupResult(status: string, sentAt?: string): StoreSettings {
     this.data.settings.lastTelegramBackupStatus = status;
     if (sentAt) {
       this.data.settings.lastTelegramBackupAt = sentAt;
+    }
+    this.save();
+    broadcastEvent('snapshot_update', this.data);
+    return this.data.settings;
+  }
+
+  recordScheduledBackupResult(status: string, ranAt?: string): StoreSettings {
+    this.data.settings.lastScheduledBackupStatus = status;
+    if (ranAt) {
+      this.data.settings.lastScheduledBackupAt = ranAt;
     }
     this.save();
     broadcastEvent('snapshot_update', this.data);

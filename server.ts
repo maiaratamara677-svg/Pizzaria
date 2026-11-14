@@ -5,6 +5,7 @@ import { createServer as createViteServer } from 'vite';
 import { store, registerSseClient } from './src/server/store.ts';
 import { generateWhatsAppAiReply } from './src/server/ai.ts';
 import { sendTelegramBackup, TelegramConfigError } from './src/server/telegram.ts';
+import { startBackupScheduler, checkScheduledBackupDue } from './src/server/backupScheduler.ts';
 import type { OrderStage } from './src/types.ts';
 
 async function startServer() {
@@ -397,6 +398,8 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`FornoDesk server listening on http://0.0.0.0:${PORT}`);
+    startBackupScheduler();
+    void checkScheduledBackupDue().catch(() => {});
   });
 }
 

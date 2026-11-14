@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Bell,
   Check,
+  Clock,
   Copy,
   Download,
   Eye,
@@ -13,7 +14,12 @@ import {
   Volume2,
   Webhook,
 } from 'lucide-react';
-import type { AppSnapshot, PaymentSoundType, StoreSettings } from '../types.ts';
+import type {
+  AppSnapshot,
+  BackupSchedule,
+  PaymentSoundType,
+  StoreSettings,
+} from '../types.ts';
 import { formatTime } from '../utils/format.ts';
 import {
   PAYMENT_SOUND_OPTIONS,
@@ -80,6 +86,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       const {
         lastTelegramBackupAt: _ignoreAt,
         lastTelegramBackupStatus: _ignoreStatus,
+        lastScheduledBackupAt: _ignoreSchedAt,
+        lastScheduledBackupStatus: _ignoreSchedStatus,
         ...editableSettings
       } = form;
       await onSaveSettings(editableSettings);
@@ -389,6 +397,90 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 className="w-full px-3 py-2 text-xs font-mono bg-white border border-stone-200 rounded-md"
               />
             </div>
+          </div>
+
+          <div className="p-3.5 bg-[#FAF6F0] border border-stone-200 rounded-lg space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-stone-800">
+                <Clock className="w-3.5 h-3.5 text-sky-700" />
+                <span>Frequência do Backup Automático</span>
+              </div>
+              {snapshot.settings.lastScheduledBackupAt && (
+                <span className="text-[11px] font-mono text-stone-500 tabular-nums">
+                  Último agendado: {formatTime(snapshot.settings.lastScheduledBackupAt)}
+                </span>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {[
+                {
+                  id: 'manual' as BackupSchedule,
+                  label: 'Somente Manual',
+                  desc: 'Salva quando você clicar ou baixar',
+                },
+                {
+                  id: 'hourly' as BackupSchedule,
+                  label: 'A cada hora',
+                  desc: 'Backup automático a cada 60 minutos',
+                },
+                {
+                  id: 'daily' as BackupSchedule,
+                  label: 'A cada dia',
+                  desc: 'Backup diário automático no horário definido',
+                },
+              ].map((opt) => {
+                const active = (form.backupSchedule ?? 'manual') === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => {
+                      setForm((prev) => ({ ...prev, backupSchedule: opt.id }));
+                      void onSaveSettings({ backupSchedule: opt.id });
+                    }}
+                    className={`text-left p-2.5 rounded-md border transition-colors ${
+                      active
+                        ? 'bg-sky-50 border-sky-600 ring-1 ring-sky-600/20'
+                        : 'bg-white border-stone-200 hover:border-stone-300'
+                    }`}
+                  >
+                    <div className="text-xs font-semibold text-stone-900">{opt.label}</div>
+                    <div className="text-[11px] text-stone-500 mt-0.5">{opt.desc}</div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {(form.backupSchedule ?? 'manual') === 'daily' && (
+              <div className="flex flex-wrap items-center gap-3 pt-1">
+                <label className="text-xs font-medium text-stone-700">
+                  Horário do backup diário:
+                </label>
+                <input
+                  type="time"
+                  value={form.backupDailyTime || '23:55'}
+                  onChange={(e) => {
+                    const nextTime = e.target.value || '23:55';
+                    setForm((prev) => ({ ...prev, backupDailyTime: nextTime }));
+                    void onSaveSettings({ backupDailyTime: nextTime });
+                  }}
+                  className="px-2.5 py-1 text-xs font-mono bg-white border border-stone-200 rounded-md"
+                />
+                <span className="text-[11px] text-stone-500">
+                  Horário de Brasília (salva localmente e envia ao Telegram se configurado)
+                </span>
+              </div>
+            )}
+
+            {snapshot.settings.lastScheduledBackupStatus && (
+              <div className="text-[11px] text-stone-600">
+                Status do agendamento:{' '}
+                <span className="font-medium text-stone-800">
+                  {snapshot.settings.lastScheduledBackupStatus}
+                </span>
+              </div>
+            )}
           </div>
 
           <label className="flex items-center gap-2.5 text-xs text-stone-700 cursor-pointer">

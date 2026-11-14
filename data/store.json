@@ -12,6 +12,8 @@
     "telegramBotToken": "",
     "telegramChatId": "",
     "telegramAutoBackupOnPayment": false,
+    "backupSchedule": "manual",
+    "backupDailyTime": "23:55",
     "paymentSound": "cozinha",
     "lastTelegramBackupStatus": "Falha no envio: Bot Token do Telegram não configurado. Informe o token do @BotFather em Integração & IA."
   },
