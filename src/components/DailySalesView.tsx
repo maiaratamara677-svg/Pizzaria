@@ -1,11 +1,13 @@
 import React, { useMemo, useState } from 'react';
 import { Calendar, Download, Loader2, MessageSquare, Receipt, Send, Settings } from 'lucide-react';
-import type { AppSnapshot, Order } from '../types.ts';
+import type { AppSnapshot, Order, OrderChannel } from '../types.ts';
 import {
   formatBRL,
   formatPaymentMethod,
   formatPaymentStatus,
   formatTime,
+  getOrderChannel,
+  ORDER_CHANNEL_META,
   ORDER_STAGE_META,
 } from '../utils/format.ts';
 
@@ -37,6 +39,7 @@ export const DailySalesView: React.FC<DailySalesViewProps> = ({
 }) => {
   const todayKey = toLocalDateKey(new Date().toISOString());
   const [selectedDate, setSelectedDate] = useState(todayKey);
+  const [channelFilter, setChannelFilter] = useState<'all' | OrderChannel>('all');
   const [sendingBackup, setSendingBackup] = useState(false);
   const [backupNotice, setBackupNotice] = useState<{
     type: 'success' | 'error';
@@ -65,13 +68,32 @@ export const DailySalesView: React.FC<DailySalesViewProps> = ({
     }
   };
 
-  const dailyOrders = useMemo(() => {
+  const allDayOrders = useMemo(() => {
     return snapshot.orders
       .filter(
         (o) => toLocalDateKey(o.createdAt) === selectedDate && o.stage !== 'cancelado'
       )
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [snapshot.orders, selectedDate]);
+
+  const dailyOrders = useMemo(() => {
+    if (channelFilter === 'all') return allDayOrders;
+    return allDayOrders.filter((o) => getOrderChannel(o.channel) === channelFilter);
+  }, [allDayOrders, channelFilter]);
+
+  const channelStats = useMemo(() => {
+    const stats: Record<OrderChannel, { count: number; total: number }> = {
+      whatsapp: { count: 0, total: 0 },
+      ifood: { count: 0, total: 0 },
+      '99food': { count: 0, total: 0 },
+    };
+    for (const order of allDayOrders) {
+      const ch = getOrderChannel(order.channel);
+      stats[ch].count += 1;
+      stats[ch].total += order.total;
+    }
+    return stats;
+  }, [allDayOrders]);
 
   const summary = useMemo(() => {
     let totalSold = 0;
@@ -136,9 +158,22 @@ export const DailySalesView: React.FC<DailySalesViewProps> = ({
   }, [dailyOrders]);
 
   const handleExportCsv = () => {
-    const header = ['Pedido', 'Hora', 'Cliente', 'Itens', 'Pagamento', 'Status Pgto', 'Etapa', 'Valor Total'];
+    const header = [
+      'Pedido',
+      'Canal',
+      'Ref Externa',
+      'Hora',
+      'Cliente',
+      'Itens',
+      'Pagamento',
+      'Status Pgto',
+      'Etapa',
+      'Valor Total',
+    ];
     const rows = dailyOrders.map((o: Order) => [
       o.code,
+      ORDER_CHANNEL_META[getOrderChannel(o.channel)].label,
+      o.externalDisplayId ?? '',
       formatTime(o.createdAt),
       `"${o.customerName.replace(/"/g, '""')}"`,
       `"${o.items.map((i) => `${i.quantity}x ${i.name} (${i.size})`).join('; ')}"`,
@@ -235,6 +270,59 @@ export const DailySalesView: React.FC<DailySalesViewProps> = ({
           )}
         </div>
       )}
+
+      {/* Channel Filter & Breakdown */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="flex items-center p-1 bg-stone-200/75 rounded-lg self-start">
+          {(
+            [
+              { id: 'all', label: 'Todos os Canais', count: allDayOrders.length },
+              { id: 'whatsapp', label: 'WhatsApp', count: channelStats.whatsapp.count },
+              { id: 'ifood', label: 'iFood', count: channelStats.ifood.count },
+              { id: '99food', label: '99Food', count: channelStats['99food'].count },
+            ] as const
+          ).map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setChannelFilter(tab.id)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
+                channelFilter === tab.id
+                  ? 'bg-white text-stone-900 shadow-xs font-semibold'
+                  : 'text-stone-600 hover:text-stone-900'
+              }`}
+            >
+              <span>{tab.label}</span>
+              <span className="font-mono text-[11px] text-stone-400 tabular-nums">
+                {tab.count}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-4 text-xs text-stone-600">
+          <span>
+            WhatsApp:{' '}
+            <strong className="font-mono text-emerald-700 tabular-nums">
+              {formatBRL(channelStats.whatsapp.total)}
+            </strong>
+          </span>
+          <span aria-hidden="true">·</span>
+          <span>
+            iFood:{' '}
+            <strong className="font-mono text-red-700 tabular-nums">
+              {formatBRL(channelStats.ifood.total)}
+            </strong>
+          </span>
+          <span aria-hidden="true">·</span>
+          <span>
+            99Food:{' '}
+            <strong className="font-mono text-amber-700 tabular-nums">
+              {formatBRL(channelStats['99food'].total)}
+            </strong>
+          </span>
+        </div>
+      </div>
 
       {/* KPI Summary Strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -346,23 +434,34 @@ export const DailySalesView: React.FC<DailySalesViewProps> = ({
               <thead>
                 <tr className="border-b border-stone-200 bg-[#FAF6F0] text-[11px] font-semibold text-stone-500">
                   <th className="py-2.5 px-4">Pedido</th>
+                  <th className="py-2.5 px-4">Canal</th>
                   <th className="py-2.5 px-4">Horário</th>
                   <th className="py-2.5 px-4">Cliente</th>
                   <th className="py-2.5 px-4">Itens Vendidos</th>
                   <th className="py-2.5 px-4">Pagamento</th>
                   <th className="py-2.5 px-4">Etapa</th>
                   <th className="py-2.5 px-4 text-right">Valor</th>
-                  <th className="py-2.5 px-4 text-right">Chat</th>
+                  <th className="py-2.5 px-4 text-right">Origem</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100 text-xs">
                 {dailyOrders.map((order) => {
                   const payMeta = formatPaymentStatus(order.payment.status);
                   const stageMeta = ORDER_STAGE_META[order.stage];
+                  const chMeta = ORDER_CHANNEL_META[getOrderChannel(order.channel)];
+                  const convId = order.conversationId;
                   return (
                     <tr key={order.id} className="hover:bg-stone-50/70">
                       <td className="py-3 px-4 font-mono font-semibold text-stone-900 tabular-nums">
-                        {order.code}
+                        <div>{order.code}</div>
+                        {order.externalDisplayId && (
+                          <div className="text-[11px] font-normal text-stone-400">
+                            {order.externalDisplayId}
+                          </div>
+                        )}
+                      </td>
+                      <td className={`py-3 px-4 font-semibold ${chMeta.textColor}`}>
+                        {chMeta.label}
                       </td>
                       <td className="py-3 px-4 font-mono text-stone-500 tabular-nums">
                         {formatTime(order.createdAt)}
@@ -388,14 +487,18 @@ export const DailySalesView: React.FC<DailySalesViewProps> = ({
                         {formatBRL(order.total)}
                       </td>
                       <td className="py-3 px-4 text-right">
-                        <button
-                          type="button"
-                          onClick={() => onOpenChat(order.conversationId)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium border border-stone-200 rounded hover:bg-stone-100 text-stone-700"
-                        >
-                          <MessageSquare className="w-3 h-3" />
-                          Ver
-                        </button>
+                        {convId ? (
+                          <button
+                            type="button"
+                            onClick={() => onOpenChat(convId)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium border border-stone-200 rounded hover:bg-stone-100 text-stone-700"
+                          >
+                            <MessageSquare className="w-3 h-3" />
+                            Ver
+                          </button>
+                        ) : (
+                          <span className="text-[11px] text-stone-400">Via {chMeta.label}</span>
+                        )}
                       </td>
                     </tr>
                   );
@@ -403,7 +506,7 @@ export const DailySalesView: React.FC<DailySalesViewProps> = ({
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-stone-200 bg-[#FAF6F0] text-xs font-semibold text-stone-900">
-                  <td colSpan={6} className="py-3 px-4 text-right">
+                  <td colSpan={7} className="py-3 px-4 text-right">
                     Valor Total das Vendas do Dia ({dailyOrders.length} pedidos):
                   </td>
                   <td className="py-3 px-4 text-right font-mono text-sm text-emerald-700 tabular-nums">

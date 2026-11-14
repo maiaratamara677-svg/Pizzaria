@@ -6,13 +6,26 @@ import { store, registerSseClient } from './src/server/store.ts';
 import { generateWhatsAppAiReply } from './src/server/ai.ts';
 import { sendTelegramBackup, TelegramConfigError } from './src/server/telegram.ts';
 import { startBackupScheduler, checkScheduledBackupDue } from './src/server/backupScheduler.ts';
+import {
+  createSimulatedMarketplaceInput,
+  normalizeIfoodPayload,
+  normalize99FoodPayload,
+  verifyMarketplaceWebhookSecret,
+} from './src/server/marketplaces.ts';
 import type { OrderStage } from './src/types.ts';
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json({ limit: '6mb' }));
+  app.use(
+    express.json({
+      limit: '6mb',
+      verify: (req, _res, buf) => {
+        (req as express.Request & { rawBody?: string }).rawBody = buf.toString('utf8');
+      },
+    })
+  );
   app.use(
     '/src/assets/images',
     express.static(path.resolve(process.cwd(), 'src/assets/images'))
@@ -379,6 +392,183 @@ async function startServer() {
       console.error('Webhook WhatsApp error:', err);
       res.sendStatus(200);
     }
+  });
+
+  // iFood Webhook / Order Ingestion Endpoint
+  app.post('/api/webhook/ifood', (req, res) => {
+    const settings = store.getSnapshot().settings;
+    if (!settings.ifoodEnabled) {
+      res.status(503).json({ error: 'Integração com iFood está desativada nas configurações.' });
+      return;
+    }
+
+    const rawBody = (req as express.Request & { rawBody?: string }).rawBody;
+    const validSecret = verifyMarketplaceWebhookSecret({
+      expectedSecret: settings.ifoodWebhookSecret,
+      headers: req.headers,
+      querySecret: req.query.secret,
+      rawBody,
+    });
+
+    if (!validSecret) {
+      res.status(401).json({ error: 'Assinatura/Segredo do webhook iFood inválido.' });
+      return;
+    }
+
+    try {
+      const normalized = normalizeIfoodPayload(req.body);
+      if (normalized.action === 'cancel') {
+        const cancelled = store.cancelMarketplaceOrder(
+          'ifood',
+          normalized.externalOrderId,
+          normalized.reason
+        );
+        res.status(200).json({ ok: true, action: 'cancelled', order: cancelled });
+        return;
+      }
+
+      const { order, deduplicated } = store.createMarketplaceOrder({
+        channel: 'ifood',
+        externalOrderId: normalized.externalOrderId,
+        externalDisplayId: normalized.externalDisplayId,
+        customerName: normalized.customerName,
+        customerPhone: normalized.customerPhone,
+        deliveryAddress: normalized.deliveryAddress,
+        neighborhood: normalized.neighborhood,
+        complement: normalized.complement,
+        items: normalized.items,
+        deliveryFee: normalized.deliveryFee,
+        paymentMethod: normalized.paymentMethod,
+        paymentStatus: normalized.paymentStatus,
+        pickupCode: normalized.pickupCode,
+        deliveryBy: normalized.deliveryBy,
+        orderNotes: normalized.orderNotes,
+        autoAccept: settings.ifoodAutoAccept,
+      });
+
+      res.status(deduplicated ? 200 : 202).json({
+        ok: true,
+        deduplicated,
+        order,
+        snapshot: store.getSnapshot(),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Erro ao processar pedido iFood.';
+      res.status(400).json({ error: message });
+    }
+  });
+
+  // 99Food Webhook / Order Ingestion Endpoint
+  app.post('/api/webhook/99food', (req, res) => {
+    const settings = store.getSnapshot().settings;
+    if (!settings.food99Enabled) {
+      res.status(503).json({ error: 'Integração com 99Food está desativada nas configurações.' });
+      return;
+    }
+
+    const rawBody = (req as express.Request & { rawBody?: string }).rawBody;
+    const validSecret = verifyMarketplaceWebhookSecret({
+      expectedSecret: settings.food99WebhookSecret,
+      headers: req.headers,
+      querySecret: req.query.secret,
+      rawBody,
+    });
+
+    if (!validSecret) {
+      res.status(401).json({ error: 'Assinatura/Segredo do webhook 99Food inválido.' });
+      return;
+    }
+
+    try {
+      const normalized = normalize99FoodPayload(req.body);
+      if (normalized.action === 'cancel') {
+        const cancelled = store.cancelMarketplaceOrder(
+          '99food',
+          normalized.externalOrderId,
+          normalized.reason
+        );
+        res.status(200).json({ ok: true, action: 'cancelled', order: cancelled });
+        return;
+      }
+
+      const { order, deduplicated } = store.createMarketplaceOrder({
+        channel: '99food',
+        externalOrderId: normalized.externalOrderId,
+        externalDisplayId: normalized.externalDisplayId,
+        customerName: normalized.customerName,
+        customerPhone: normalized.customerPhone,
+        deliveryAddress: normalized.deliveryAddress,
+        neighborhood: normalized.neighborhood,
+        complement: normalized.complement,
+        items: normalized.items,
+        deliveryFee: normalized.deliveryFee,
+        paymentMethod: normalized.paymentMethod,
+        paymentStatus: normalized.paymentStatus,
+        pickupCode: normalized.pickupCode,
+        deliveryBy: normalized.deliveryBy,
+        orderNotes: normalized.orderNotes,
+        autoAccept: settings.food99AutoAccept,
+      });
+
+      res.status(deduplicated ? 200 : 202).json({
+        ok: true,
+        deduplicated,
+        order,
+        snapshot: store.getSnapshot(),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Erro ao processar pedido 99Food.';
+      res.status(400).json({ error: message });
+    }
+  });
+
+  // Simulate incoming iFood or 99Food order (for testing & operator training)
+  app.post('/api/integrations/simulate-order', (req, res) => {
+    const { channel } = (req.body ?? {}) as { channel?: 'ifood' | '99food' };
+    if (channel !== 'ifood' && channel !== '99food') {
+      res.status(400).json({ error: 'Canal inválido. Informe "ifood" ou "99food".' });
+      return;
+    }
+
+    const current = store.getSnapshot();
+    const isEnabled =
+      channel === 'ifood' ? current.settings.ifoodEnabled : current.settings.food99Enabled;
+    if (!isEnabled) {
+      res.status(400).json({
+        error: `Ative a integração ${channel === 'ifood' ? 'iFood' : '99Food'} em Integração & IA antes de simular pedidos.`,
+      });
+      return;
+    }
+
+    const simulatedPayload = createSimulatedMarketplaceInput(channel, current.menu);
+    const normalized =
+      channel === 'ifood'
+        ? normalizeIfoodPayload(simulatedPayload)
+        : normalize99FoodPayload(simulatedPayload);
+
+    const autoAccept =
+      channel === 'ifood' ? current.settings.ifoodAutoAccept : current.settings.food99AutoAccept;
+
+    const { order } = store.createMarketplaceOrder({
+      channel,
+      externalOrderId: normalized.externalOrderId,
+      externalDisplayId: normalized.externalDisplayId,
+      customerName: normalized.customerName,
+      customerPhone: normalized.customerPhone,
+      deliveryAddress: normalized.deliveryAddress,
+      neighborhood: normalized.neighborhood,
+      complement: normalized.complement,
+      items: normalized.items,
+      deliveryFee: normalized.deliveryFee,
+      paymentMethod: normalized.paymentMethod,
+      paymentStatus: normalized.paymentStatus,
+      pickupCode: normalized.pickupCode,
+      deliveryBy: normalized.deliveryBy,
+      orderNotes: normalized.orderNotes,
+      autoAccept,
+    });
+
+    res.json({ ok: true, order, snapshot: store.getSnapshot() });
   });
 
   // Vite middleware in dev, static serving in production

@@ -10,6 +10,7 @@ import {
   Loader2,
   Save,
   Send,
+  Store,
   Upload,
   Volume2,
   Webhook,
@@ -36,6 +37,7 @@ interface SettingsViewProps {
     telegramAutoBackupOnPayment?: boolean;
   }) => Promise<{ summary: string; sentAt: string }>;
   onRestoreBackup: (parsedSnapshot: unknown) => Promise<void>;
+  onSimulateMarketplaceOrder: (channel: 'ifood' | '99food') => Promise<void>;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -43,12 +45,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onSaveSettings,
   onSendTelegramBackup,
   onRestoreBackup,
+  onSimulateMarketplaceOrder,
 }) => {
   const [form, setForm] = useState<StoreSettings>(snapshot.settings);
   const [saving, setSaving] = useState(false);
   const [savedFeedback, setSavedFeedback] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [copiedWebhook, setCopiedWebhook] = useState(false);
+  const [copiedIfoodWebhook, setCopiedIfoodWebhook] = useState(false);
+  const [copied99FoodWebhook, setCopied99FoodWebhook] = useState(false);
+  const [showIfoodSecret, setShowIfoodSecret] = useState(false);
+  const [show99FoodSecret, setShow99FoodSecret] = useState(false);
+  const [testingChannel, setTestingChannel] = useState<'ifood' | '99food' | null>(null);
+  const [marketplaceFeedback, setMarketplaceFeedback] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
 
   useEffect(() => {
     setForm((prev) =>
@@ -72,10 +84,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [restoreFeedback, setRestoreFeedback] = useState<string | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
 
-  const webhookUrl =
-    typeof window !== 'undefined'
-      ? `${window.location.origin}/api/webhook/whatsapp`
-      : '/api/webhook/whatsapp';
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const webhookUrl = `${origin}/api/webhook/whatsapp`;
+  const ifoodWebhookUrl = `${origin}/api/webhook/ifood`;
+  const food99WebhookUrl = `${origin}/api/webhook/99food`;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -168,13 +180,37 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
-  const copyWebhook = async () => {
+  const copyText = async (text: string, onSuccess: () => void) => {
     try {
-      await navigator.clipboard.writeText(webhookUrl);
+      await navigator.clipboard.writeText(text);
+      onSuccess();
+    } catch {
+      // Ignore clipboard failure
+    }
+  };
+
+  const copyWebhook = () =>
+    copyText(webhookUrl, () => {
       setCopiedWebhook(true);
       setTimeout(() => setCopiedWebhook(false), 2000);
-    } catch {
-      setCopiedWebhook(false);
+    });
+
+  const handleTestMarketplace = async (channel: 'ifood' | '99food') => {
+    setTestingChannel(channel);
+    setMarketplaceFeedback(null);
+    try {
+      await onSimulateMarketplaceOrder(channel);
+      setMarketplaceFeedback({
+        type: 'success',
+        text: `Pedido de teste ${channel === 'ifood' ? 'iFood' : '99Food'} recebido e enviado para Pedidos & Cozinha.`,
+      });
+    } catch (err) {
+      setMarketplaceFeedback({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Falha ao simular pedido.',
+      });
+    } finally {
+      setTestingChannel(null);
     }
   };
 
@@ -690,6 +726,239 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               />
             </div>
           </div>
+        </div>
+
+        {/* Integração iFood & 99Food */}
+        <div className="bg-[#FFFDF9]/95 border border-stone-200 rounded-lg p-5 space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-stone-100 pb-2">
+            <div className="flex items-center gap-2">
+              <Store className="w-4 h-4 text-red-700" />
+              <h2 className="text-sm font-semibold text-stone-900">
+                Integração iFood & 99Food (Delivery Marketplaces)
+              </h2>
+            </div>
+            <span className="text-[11px] text-stone-500">
+              Header aceito: <span className="font-mono text-stone-700">x-webhook-secret</span> ou HMAC SHA-256
+            </span>
+          </div>
+
+          <p className="text-xs text-stone-600 leading-relaxed">
+            Receba pedidos do iFood e do 99Food direto no painel da cozinha, com registro automático de clientes, código de coleta do entregador e consolidação no caixa do dia.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* iFood */}
+            <div className="p-4 bg-[#FAF6F0] border border-stone-200 rounded-lg space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-red-700">iFood Parceiros</span>
+                <label className="inline-flex items-center gap-2 text-xs text-stone-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.ifoodEnabled}
+                    onChange={(e) => {
+                      const next = e.target.checked;
+                      setForm((prev) => ({ ...prev, ifoodEnabled: next }));
+                      void onSaveSettings({ ifoodEnabled: next });
+                    }}
+                    className="rounded border-stone-300 text-red-700 focus:ring-red-600"
+                  />
+                  <span>Receber pedidos</span>
+                </label>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-stone-700 mb-1">
+                  Webhook URL iFood
+                </label>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    readOnly
+                    value={ifoodWebhookUrl}
+                    className="flex-1 min-w-0 px-2.5 py-1.5 text-[11px] font-mono bg-white border border-stone-200 rounded-md text-stone-700"
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      copyText(ifoodWebhookUrl, () => {
+                        setCopiedIfoodWebhook(true);
+                        setTimeout(() => setCopiedIfoodWebhook(false), 2000);
+                      })
+                    }
+                    className="px-2.5 py-1.5 text-[11px] font-medium bg-white border border-stone-200 rounded-md hover:bg-stone-50 shrink-0"
+                  >
+                    {copiedIfoodWebhook ? 'Copiado' : 'Copiar'}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-stone-700 mb-1">
+                  Merchant ID (Loja iFood)
+                </label>
+                <input
+                  type="text"
+                  value={form.ifoodMerchantId}
+                  onChange={(e) => setForm({ ...form, ifoodMerchantId: e.target.value })}
+                  placeholder="Ex: 8e4f9a2b-..."
+                  className="w-full px-2.5 py-1.5 text-xs font-mono bg-white border border-stone-200 rounded-md"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-stone-700 mb-1">
+                  Webhook Secret iFood
+                </label>
+                <div className="relative">
+                  <input
+                    type={showIfoodSecret ? 'text' : 'password'}
+                    value={form.ifoodWebhookSecret}
+                    onChange={(e) => setForm({ ...form, ifoodWebhookSecret: e.target.value })}
+                    className="w-full pr-8 pl-2.5 py-1.5 text-xs font-mono bg-white border border-stone-200 rounded-md"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowIfoodSecret((v) => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700"
+                    aria-label={showIfoodSecret ? 'Ocultar segredo iFood' : 'Mostrar segredo iFood'}
+                  >
+                    {showIfoodSecret ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+
+              <label className="flex items-center gap-2 text-xs text-stone-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.ifoodAutoAccept}
+                  onChange={(e) => setForm({ ...form, ifoodAutoAccept: e.target.checked })}
+                  className="rounded border-stone-300 text-red-700 focus:ring-red-600"
+                />
+                <span>Aceite automático (enviar direto para Em Preparo)</span>
+              </label>
+
+              <button
+                type="button"
+                disabled={testingChannel !== null}
+                onClick={() => handleTestMarketplace('ifood')}
+                className="w-full py-1.5 px-3 text-xs font-semibold bg-red-700 text-white rounded-md hover:bg-red-800 disabled:opacity-60 transition-colors"
+              >
+                {testingChannel === 'ifood' ? 'Simulando pedido iFood...' : 'Testar Recebimento iFood'}
+              </button>
+            </div>
+
+            {/* 99Food */}
+            <div className="p-4 bg-[#FAF6F0] border border-stone-200 rounded-lg space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-amber-700">99Food Parceiros</span>
+                <label className="inline-flex items-center gap-2 text-xs text-stone-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.food99Enabled}
+                    onChange={(e) => {
+                      const next = e.target.checked;
+                      setForm((prev) => ({ ...prev, food99Enabled: next }));
+                      void onSaveSettings({ food99Enabled: next });
+                    }}
+                    className="rounded border-stone-300 text-amber-700 focus:ring-amber-600"
+                  />
+                  <span>Receber pedidos</span>
+                </label>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-stone-700 mb-1">
+                  Webhook URL 99Food
+                </label>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    readOnly
+                    value={food99WebhookUrl}
+                    className="flex-1 min-w-0 px-2.5 py-1.5 text-[11px] font-mono bg-white border border-stone-200 rounded-md text-stone-700"
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      copyText(food99WebhookUrl, () => {
+                        setCopied99FoodWebhook(true);
+                        setTimeout(() => setCopied99FoodWebhook(false), 2000);
+                      })
+                    }
+                    className="px-2.5 py-1.5 text-[11px] font-medium bg-white border border-stone-200 rounded-md hover:bg-stone-50 shrink-0"
+                  >
+                    {copied99FoodWebhook ? 'Copiado' : 'Copiar'}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-stone-700 mb-1">
+                  Store ID (Loja 99Food)
+                </label>
+                <input
+                  type="text"
+                  value={form.food99StoreId}
+                  onChange={(e) => setForm({ ...form, food99StoreId: e.target.value })}
+                  placeholder="Ex: 99food-store-104"
+                  className="w-full px-2.5 py-1.5 text-xs font-mono bg-white border border-stone-200 rounded-md"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-stone-700 mb-1">
+                  Webhook Secret 99Food
+                </label>
+                <div className="relative">
+                  <input
+                    type={show99FoodSecret ? 'text' : 'password'}
+                    value={form.food99WebhookSecret}
+                    onChange={(e) => setForm({ ...form, food99WebhookSecret: e.target.value })}
+                    className="w-full pr-8 pl-2.5 py-1.5 text-xs font-mono bg-white border border-stone-200 rounded-md"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShow99FoodSecret((v) => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700"
+                    aria-label={show99FoodSecret ? 'Ocultar segredo 99Food' : 'Mostrar segredo 99Food'}
+                  >
+                    {show99FoodSecret ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+
+              <label className="flex items-center gap-2 text-xs text-stone-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.food99AutoAccept}
+                  onChange={(e) => setForm({ ...form, food99AutoAccept: e.target.checked })}
+                  className="rounded border-stone-300 text-amber-700 focus:ring-amber-600"
+                />
+                <span>Aceite automático (enviar direto para Em Preparo)</span>
+              </label>
+
+              <button
+                type="button"
+                disabled={testingChannel !== null}
+                onClick={() => handleTestMarketplace('99food')}
+                className="w-full py-1.5 px-3 text-xs font-semibold bg-amber-700 text-white rounded-md hover:bg-amber-800 disabled:opacity-60 transition-colors"
+              >
+                {testingChannel === '99food' ? 'Simulando pedido 99Food...' : 'Testar Recebimento 99Food'}
+              </button>
+            </div>
+          </div>
+
+          {marketplaceFeedback && (
+            <div
+              className={`p-2.5 text-xs rounded-md border ${
+                marketplaceFeedback.type === 'success'
+                  ? 'text-emerald-800 bg-emerald-50 border-emerald-200'
+                  : 'text-red-800 bg-red-50 border-red-200'
+              }`}
+            >
+              {marketplaceFeedback.text}
+            </div>
+          )}
         </div>
 
         <div className="flex items-center justify-end gap-3">

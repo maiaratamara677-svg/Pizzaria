@@ -1,3 +1,5 @@
+export type OrderChannel = 'whatsapp' | 'ifood' | '99food';
+
 export type OrderStage =
   | 'recebido'
   | 'em_preparo'
@@ -6,7 +8,13 @@ export type OrderStage =
   | 'entregue'
   | 'cancelado';
 
-export type PaymentMethod = 'pix' | 'cartao_online' | 'cartao_entrega' | 'dinheiro';
+export type PaymentMethod =
+  | 'pix'
+  | 'cartao_online'
+  | 'cartao_entrega'
+  | 'dinheiro'
+  | 'ifood_online'
+  | '99food_online';
 
 export type PaymentStatus = 'aguardando' | 'pago' | 'pagamento_na_entrega';
 
@@ -34,6 +42,7 @@ export interface Customer {
   neighborhood: string;
   complement: string;
   notes: string;
+  channel?: OrderChannel;
   autoRegistered: boolean;
   registeredAt: string;
   totalOrders: number;
@@ -48,6 +57,7 @@ export interface OrderItem {
   quantity: number;
   unitPrice: number;
   halfAndHalf?: string;
+  notes?: string;
 }
 
 export interface PaymentPayload {
@@ -64,8 +74,14 @@ export interface PaymentPayload {
 export interface Order {
   id: string;
   code: string;
+  channel?: OrderChannel;
+  externalOrderId?: string;
+  externalDisplayId?: string;
+  pickupCode?: string;
+  deliveryBy?: 'loja' | 'marketplace';
+  orderNotes?: string;
   customerId: string;
-  conversationId: string;
+  conversationId?: string;
   customerName: string;
   customerPhone: string;
   deliveryAddress: string;
@@ -135,6 +151,14 @@ export interface StoreSettings {
   autoNotifyOrderUpdates: boolean;
   whatsappVerifyToken: string;
   whatsappPhoneNumberId: string;
+  ifoodEnabled: boolean;
+  ifoodMerchantId: string;
+  ifoodWebhookSecret: string;
+  ifoodAutoAccept: boolean;
+  food99Enabled: boolean;
+  food99StoreId: string;
+  food99WebhookSecret: string;
+  food99AutoAccept: boolean;
   telegramBotToken: string;
   telegramChatId: string;
   telegramAutoBackupOnPayment: boolean;

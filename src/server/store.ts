@@ -9,9 +9,11 @@ import type {
   Customer,
   MenuItem,
   Order,
+  OrderChannel,
   OrderItem,
   OrderStage,
   PaymentMethod,
+  PaymentStatus,
   StoreSettings,
 } from '../types.ts';
 
@@ -101,6 +103,14 @@ function createInitialData(): AppSnapshot {
     autoNotifyOrderUpdates: true,
     whatsappVerifyToken: 'fornodesk_verify_2026',
     whatsappPhoneNumberId: '104829301928374',
+    ifoodEnabled: true,
+    ifoodMerchantId: '',
+    ifoodWebhookSecret: 'fornodesk_ifood_2026',
+    ifoodAutoAccept: true,
+    food99Enabled: true,
+    food99StoreId: '',
+    food99WebhookSecret: 'fornodesk_99food_2026',
+    food99AutoAccept: true,
     telegramBotToken: '',
     telegramChatId: '',
     telegramAutoBackupOnPayment: false,
@@ -665,6 +675,7 @@ class PizzeriaStore {
     const order: Order = {
       id,
       code,
+      channel: 'whatsapp',
       customerId: customer.id,
       conversationId: params.conversationId,
       customerName: customer.name,
@@ -700,6 +711,214 @@ class PizzeriaStore {
     return order;
   }
 
+  createMarketplaceOrder(params: {
+    channel: Extract<OrderChannel, 'ifood' | '99food'>;
+    externalOrderId: string;
+    externalDisplayId?: string;
+    customerName: string;
+    customerPhone?: string;
+    deliveryAddress: string;
+    neighborhood?: string;
+    complement?: string;
+    items: {
+      menuItemId?: string;
+      name: string;
+      size?: OrderItem['size'];
+      crust?: string;
+      quantity: number;
+      unitPrice: number;
+      notes?: string;
+    }[];
+    deliveryFee?: number;
+    paymentMethod: PaymentMethod;
+    paymentStatus: PaymentStatus;
+    pickupCode?: string;
+    deliveryBy?: 'loja' | 'marketplace';
+    orderNotes?: string;
+    autoAccept?: boolean;
+  }): { order: Order; deduplicated: boolean } {
+    const existing = this.data.orders.find(
+      (o) => o.channel === params.channel && o.externalOrderId === params.externalOrderId
+    );
+    if (existing) {
+      return { order: existing, deduplicated: true };
+    }
+
+    const channelLabel = params.channel === 'ifood' ? 'iFood' : '99Food';
+    const rawPhone = (params.customerPhone ?? '').trim();
+    const digits = rawPhone.replace(/\D/g, '');
+    const displayPhone = rawPhone || `${channelLabel} #${params.externalDisplayId || params.externalOrderId.slice(0, 8)}`;
+
+    let customer = digits
+      ? this.data.customers.find((c) => c.phone.replace(/\D/g, '') === digits)
+      : undefined;
+
+    if (!customer) {
+      customer = {
+        id: `cust-${crypto.randomUUID().slice(0, 8)}`,
+        phone: displayPhone,
+        name: params.customerName.trim() || `Cliente ${channelLabel}`,
+        address: params.deliveryAddress.trim(),
+        neighborhood: params.neighborhood?.trim() ?? '',
+        complement: params.complement?.trim() ?? '',
+        notes: params.orderNotes?.trim() ? `[${channelLabel}] ${params.orderNotes.trim()}` : `Cliente via ${channelLabel}`,
+        channel: params.channel,
+        autoRegistered: true,
+        registeredAt: new Date().toISOString(),
+        totalOrders: 0,
+        totalSpent: 0,
+      };
+      this.data.customers.unshift(customer);
+    } else {
+      if (params.customerName.trim() && customer.name.startsWith('Contato Novo')) {
+        customer.name = params.customerName.trim();
+      }
+      if (params.deliveryAddress.trim() && !customer.address) {
+        customer.address = params.deliveryAddress.trim();
+      }
+    }
+
+    const resolvedItems: OrderItem[] = params.items.map((item) => {
+      const cleanId = (item.menuItemId ?? '').trim().toLowerCase();
+      const cleanName = item.name.trim().toLowerCase();
+      const matched = this.data.menu.find(
+        (m) =>
+          (cleanId && m.id.toLowerCase() === cleanId) ||
+          m.name.toLowerCase() === cleanName ||
+          (cleanName.length >= 4 && m.name.toLowerCase().includes(cleanName))
+      );
+
+      return {
+        menuItemId: matched?.id ?? (item.menuItemId || `ext-${crypto.randomUUID().slice(0, 6)}`),
+        name: matched?.name ?? item.name.trim(),
+        size: item.size ?? (matched?.category === 'Bebidas' ? 'unico' : 'grande'),
+        crust: item.crust,
+        quantity: Math.max(1, Math.round(Number(item.quantity) || 1)),
+        unitPrice: Math.max(0, Number(item.unitPrice) || matched?.prices.grande || 0),
+        notes: item.notes?.trim() || undefined,
+      };
+    });
+
+    const subtotal = resolvedItems.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
+    const deliveryFee =
+      typeof params.deliveryFee === 'number' && Number.isFinite(params.deliveryFee) && params.deliveryFee >= 0
+        ? params.deliveryFee
+        : this.data.settings.deliveryFee;
+    const total = subtotal + deliveryFee;
+
+    const maxOrderNum = this.data.orders.reduce((max, o) => {
+      const num = Number(o.id.replace(/\D/g, ''));
+      return Number.isFinite(num) && num > max ? num : max;
+    }, 2049);
+    const orderNum = maxOrderNum + 1;
+    const code = `#${orderNum}`;
+    const id = `ord-${orderNum}`;
+    const nowIso = new Date().toISOString();
+
+    const shouldAutoAccept = Boolean(params.autoAccept);
+    const stage: OrderStage = shouldAutoAccept ? 'em_preparo' : 'recebido';
+
+    const timeline: Order['timeline'] = [
+      {
+        stage: 'recebido',
+        timestamp: nowIso,
+        note: `Pedido recebido automaticamente via ${channelLabel}${
+          params.externalDisplayId ? ` (${params.externalDisplayId})` : ''
+        }`,
+      },
+    ];
+    if (shouldAutoAccept) {
+      timeline.push({
+        stage: 'em_preparo',
+        timestamp: nowIso,
+        note: `Aceite automático ${channelLabel} ativo · enviado para a cozinha`,
+      });
+    }
+
+    const prefix = params.channel === 'ifood' ? 'IFD' : '99F';
+    const fullAddress = [
+      params.deliveryAddress.trim(),
+      params.neighborhood?.trim(),
+      params.complement?.trim() ? `(${params.complement.trim()})` : '',
+    ]
+      .filter(Boolean)
+      .join(' - ') || 'Retirada no balcão';
+
+    const order: Order = {
+      id,
+      code,
+      channel: params.channel,
+      externalOrderId: params.externalOrderId,
+      externalDisplayId: params.externalDisplayId,
+      pickupCode: params.pickupCode?.trim() || undefined,
+      deliveryBy: params.deliveryBy ?? 'marketplace',
+      orderNotes: params.orderNotes?.trim() || undefined,
+      customerId: customer.id,
+      customerName: customer.name,
+      customerPhone: customer.phone,
+      deliveryAddress: fullAddress,
+      items: resolvedItems,
+      subtotal,
+      deliveryFee,
+      total,
+      stage,
+      payment: {
+        method: params.paymentMethod,
+        status: params.paymentStatus,
+        amount: total,
+        transactionId: `${prefix}-${params.externalDisplayId || orderNum}`,
+        paidAt: params.paymentStatus === 'pago' ? nowIso : undefined,
+      },
+      estimatedMinutes: shouldAutoAccept ? 28 : this.data.settings.averagePrepMinutes,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      timeline,
+    };
+
+    this.data.orders.unshift(order);
+    customer.totalOrders += 1;
+    customer.totalSpent += total;
+
+    this.save();
+    broadcastEvent('marketplace_order', {
+      orderId: order.id,
+      orderCode: order.code,
+      externalDisplayId: order.externalDisplayId,
+      channel: params.channel,
+      customerName: order.customerName,
+      amount: order.total,
+      paid: order.payment.status === 'pago',
+    });
+    broadcastEvent('snapshot_update', this.data);
+    return { order, deduplicated: false };
+  }
+
+  cancelMarketplaceOrder(
+    channel: Extract<OrderChannel, 'ifood' | '99food'>,
+    externalOrderId: string,
+    reason?: string
+  ): Order | null {
+    const order = this.data.orders.find(
+      (o) => o.channel === channel && o.externalOrderId === externalOrderId
+    );
+    if (!order) return null;
+    if (order.stage === 'cancelado') return order;
+
+    const nowIso = new Date().toISOString();
+    order.stage = 'cancelado';
+    order.updatedAt = nowIso;
+    order.estimatedMinutes = 0;
+    order.timeline.push({
+      stage: 'cancelado',
+      timestamp: nowIso,
+      note: reason?.trim() || `Cancelado via webhook ${channel === 'ifood' ? 'iFood' : '99Food'}`,
+    });
+
+    this.save();
+    broadcastEvent('snapshot_update', this.data);
+    return order;
+  }
+
   confirmOrderPayment(orderId: string): Order | null {
     const order = this.data.orders.find((o) => o.id === orderId);
     if (!order) return null;
@@ -728,18 +947,20 @@ class PizzeriaStore {
       }
     }
 
-    // Automatically push WhatsApp confirmation + live tracking card into chat
-    this.addMessage({
-      conversationId: order.conversationId,
-      sender: 'ai',
-      text: `Pagamento de R$ ${order.total.toFixed(2).replace('.', ',')} confirmado! Seu pedido ${order.code} já entrou em preparo na cozinha. Acompanhe o rastreio em tempo real abaixo:`,
-      status: 'read',
-      aiActionLabel: `Pagamento aprovado · Rastreio ${order.code}`,
-      attachment: {
-        type: 'tracking',
-        orderId: order.id,
-      },
-    });
+    // Automatically push WhatsApp confirmation + live tracking card into chat when linked
+    if (order.conversationId) {
+      this.addMessage({
+        conversationId: order.conversationId,
+        sender: 'ai',
+        text: `Pagamento de R$ ${order.total.toFixed(2).replace('.', ',')} confirmado! Seu pedido ${order.code} já entrou em preparo na cozinha. Acompanhe o rastreio em tempo real abaixo:`,
+        status: 'read',
+        aiActionLabel: `Pagamento aprovado · Rastreio ${order.code}`,
+        attachment: {
+          type: 'tracking',
+          orderId: order.id,
+        },
+      });
+    }
 
     this.save();
     broadcastEvent('payment_confirmed', {
@@ -813,7 +1034,7 @@ class PizzeriaStore {
       note: meta.note,
     });
 
-    if (this.data.settings.autoNotifyOrderUpdates) {
+    if (this.data.settings.autoNotifyOrderUpdates && order.conversationId) {
       this.addMessage({
         conversationId: order.conversationId,
         sender: 'ai',

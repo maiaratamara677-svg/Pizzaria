@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { MessageSquare, Search, UserCheck } from 'lucide-react';
 import type { AppSnapshot } from '../types.ts';
-import { formatBRL, formatDateTime } from '../utils/format.ts';
+import { formatBRL, formatDateTime, getOrderChannel, ORDER_CHANNEL_META } from '../utils/format.ts';
 
 interface CustomersViewProps {
   snapshot: AppSnapshot;
@@ -32,10 +32,10 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ snapshot, onOpenCh
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold text-slate-900">
-            Clientes · Cadastro Automático via IA
+            Clientes · Cadastro Automático via IA & Apps
           </h1>
           <p className="text-xs text-slate-500 mt-1">
-            Sempre que um cliente informa nome e endereço no WhatsApp, a IA registra e atualiza os dados automaticamente aqui.
+            Clientes atendidos pelo WhatsApp, iFood e 99Food são cadastrados e atualizados automaticamente aqui.
           </p>
         </div>
 
@@ -78,12 +78,12 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ snapshot, onOpenCh
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-semibold text-slate-500">
                 <th className="py-2.5 px-4">Cliente</th>
-                <th className="py-2.5 px-4">WhatsApp</th>
+                <th className="py-2.5 px-4">Contato</th>
                 <th className="py-2.5 px-4">Endereço de Entrega</th>
                 <th className="py-2.5 px-4">Cadastro</th>
                 <th className="py-2.5 px-4 text-right">Pedidos</th>
                 <th className="py-2.5 px-4 text-right">Total Gasto</th>
-                <th className="py-2.5 px-4 text-right">Chat</th>
+                <th className="py-2.5 px-4 text-right">Origem</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
@@ -98,12 +98,16 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ snapshot, onOpenCh
                   const conv = snapshot.conversations.find(
                     (c) => c.customerId === customer.id
                   );
+                  const chMeta = ORDER_CHANNEL_META[getOrderChannel(customer.channel)];
                   return (
                     <tr key={customer.id} className="hover:bg-slate-50/80">
                       <td className="py-3 px-4">
                         <div className="font-medium text-slate-900">{customer.name}</div>
                         <div className="text-[11px] text-slate-400 font-mono tabular-nums">
-                          Desde {formatDateTime(customer.registeredAt)}
+                          <span className={`font-sans font-semibold ${chMeta.textColor}`}>
+                            {chMeta.label}
+                          </span>{' '}
+                          · Desde {formatDateTime(customer.registeredAt)}
                         </div>
                       </td>
                       <td className="py-3 px-4 font-mono text-slate-700 tabular-nums">
@@ -128,7 +132,9 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ snapshot, onOpenCh
                         {customer.autoRegistered ? (
                           <span className="inline-flex items-center gap-1 text-emerald-700 font-medium">
                             <UserCheck className="w-3.5 h-3.5" />
-                            Auto-IA Completo
+                            {customer.channel && customer.channel !== 'whatsapp'
+                              ? `Auto (${chMeta.label})`
+                              : 'Auto-IA Completo'}
                           </span>
                         ) : (
                           <span className="text-amber-700 font-medium">Pendente no chat</span>
@@ -141,7 +147,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ snapshot, onOpenCh
                         {formatBRL(customer.totalSpent)}
                       </td>
                       <td className="py-3 px-4 text-right">
-                        {conv && (
+                        {conv ? (
                           <button
                             type="button"
                             onClick={() => onOpenChat(conv.id)}
@@ -150,6 +156,10 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ snapshot, onOpenCh
                             <MessageSquare className="w-3.5 h-3.5" />
                             Abrir
                           </button>
+                        ) : (
+                          <span className={`text-[11px] font-medium ${chMeta.textColor}`}>
+                            Via {chMeta.label}
+                          </span>
                         )}
                       </td>
                     </tr>

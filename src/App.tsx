@@ -62,6 +62,7 @@ export default function App() {
 
   const [bellEnabled, setBellEnabled] = useState(true);
   const [paymentToast, setPaymentToast] = useState<{
+    title: string;
     orderCode: string;
     customerName: string;
     amount: number;
@@ -79,6 +80,7 @@ export default function App() {
     orderCode: string;
     customerName: string;
     amount: number;
+    title?: string;
   }) => {
     if (lastBellOrderIdRef.current === payload.orderId) return;
     lastBellOrderIdRef.current = payload.orderId;
@@ -87,6 +89,7 @@ export default function App() {
       playPaymentSound(paymentSoundRef.current);
     }
     setPaymentToast({
+      title: payload.title ?? 'Pagamento Confirmado',
       orderCode: payload.orderCode,
       customerName: payload.customerName,
       amount: payload.amount,
@@ -152,6 +155,33 @@ export default function App() {
         };
         if (active) {
           triggerPaymentBell(payload);
+        }
+      } catch {
+        // Ignore malformed SSE payload
+      }
+    });
+
+    eventSource.addEventListener('marketplace_order', (evt) => {
+      try {
+        const payload = JSON.parse((evt as MessageEvent).data) as {
+          orderId: string;
+          orderCode: string;
+          externalDisplayId?: string;
+          channel: 'ifood' | '99food';
+          customerName: string;
+          amount: number;
+        };
+        if (active) {
+          const channelLabel = payload.channel === 'ifood' ? 'iFood' : '99Food';
+          triggerPaymentBell({
+            orderId: payload.orderId,
+            orderCode: payload.externalDisplayId
+              ? `${payload.orderCode} (${payload.externalDisplayId})`
+              : payload.orderCode,
+            customerName: payload.customerName,
+            amount: payload.amount,
+            title: `Novo Pedido ${channelLabel}`,
+          });
         }
       } catch {
         // Ignore malformed SSE payload
@@ -385,6 +415,32 @@ export default function App() {
     if (data.snapshot) setSnapshot(data.snapshot);
     if (!res.ok) {
       throw new Error(data.error || 'Falha ao restaurar arquivo de backup.');
+    }
+  };
+
+  const handleSimulateMarketplaceOrder = async (channel: 'ifood' | '99food') => {
+    unlockKitchenBellAudio();
+    const res = await fetch('/api/integrations/simulate-order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channel }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data.snapshot) setSnapshot(data.snapshot);
+    if (!res.ok) {
+      throw new Error(data.error || 'Não foi possível simular o pedido.');
+    }
+    if (data.order) {
+      const channelLabel = channel === 'ifood' ? 'iFood' : '99Food';
+      triggerPaymentBell({
+        orderId: data.order.id,
+        orderCode: data.order.externalDisplayId
+          ? `${data.order.code} (${data.order.externalDisplayId})`
+          : data.order.code,
+        customerName: data.order.customerName,
+        amount: data.order.total,
+        title: `Novo Pedido ${channelLabel}`,
+      });
     }
   };
 
@@ -656,6 +712,7 @@ export default function App() {
               snapshot={snapshot}
               onAdvanceOrder={handleAdvanceOrder}
               onConfirmPayment={handleConfirmPayment}
+              onSimulateMarketplaceOrder={handleSimulateMarketplaceOrder}
               onOpenChat={(convId) => {
                 setSelectedConversationId(convId);
                 setActiveTab('whatsapp');
@@ -701,6 +758,7 @@ export default function App() {
               onSaveSettings={handleSaveSettings}
               onSendTelegramBackup={handleSendTelegramBackup}
               onRestoreBackup={handleRestoreBackup}
+              onSimulateMarketplaceOrder={handleSimulateMarketplaceOrder}
             />
           )}
         </main>
@@ -796,7 +854,7 @@ export default function App() {
           </div>
           <div className="flex-1 min-w-0 space-y-1">
             <div className="text-xs font-semibold">
-              Pagamento Confirmado · {paymentToast.orderCode}
+              {paymentToast.title} · {paymentToast.orderCode}
             </div>
             <div className="text-[11px] text-slate-300 truncate">
               {paymentToast.customerName} ·{' '}
