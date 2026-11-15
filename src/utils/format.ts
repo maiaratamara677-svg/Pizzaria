@@ -1,4 +1,12 @@
-import type { OrderChannel, OrderStage, PaymentMethod, PaymentStatus } from '../types.ts';
+import type {
+  DeliveryDriver,
+  Order,
+  OrderChannel,
+  OrderServiceType,
+  OrderStage,
+  PaymentMethod,
+  PaymentStatus,
+} from '../types.ts';
 
 export function formatBRL(value: number): string {
   return value.toLocaleString('pt-BR', {
@@ -58,11 +66,51 @@ export const ORDER_CHANNEL_META: Record<
     textColor: 'text-amber-700',
     accentColor: '#B45309',
   },
+  pdv: {
+    label: 'PDV / Balcão',
+    shortLabel: 'PDV',
+    textColor: 'text-stone-800',
+    accentColor: '#44403C',
+  },
 };
 
 export function getOrderChannel(channel?: OrderChannel): OrderChannel {
-  if (channel === 'ifood' || channel === '99food') return channel;
+  if (channel === 'ifood' || channel === '99food' || channel === 'pdv') return channel;
   return 'whatsapp';
+}
+
+export const ORDER_SERVICE_TYPE_META: Record<
+  OrderServiceType,
+  {
+    label: string;
+    shortLabel: string;
+    textColor: string;
+  }
+> = {
+  entrega: {
+    label: 'Entrega',
+    shortLabel: 'Entrega',
+    textColor: 'text-sky-700',
+  },
+  retirada: {
+    label: 'Retirada no Balcão',
+    shortLabel: 'Retirada',
+    textColor: 'text-violet-700',
+  },
+  mesa: {
+    label: 'Comer no Local / Mesa',
+    shortLabel: 'Mesa',
+    textColor: 'text-orange-700',
+  },
+};
+
+export function getOrderServiceType(order: Pick<Order, 'serviceType' | 'deliveryAddress'>): OrderServiceType {
+  if (order.serviceType === 'retirada' || order.serviceType === 'mesa' || order.serviceType === 'entrega') {
+    return order.serviceType;
+  }
+  if (/retirada|balc[aã]o/i.test(order.deliveryAddress)) return 'retirada';
+  if (/^mesa\b/i.test(order.deliveryAddress)) return 'mesa';
+  return 'entrega';
 }
 
 export const ORDER_STAGE_META: Record<
@@ -155,4 +203,60 @@ export function formatPaymentStatus(status: PaymentStatus): {
     case 'pagamento_na_entrega':
       return { label: 'Pagar na Entrega', colorClass: 'text-slate-600' };
   }
+}
+
+export function buildDriverDispatchMessage(
+  order: Order,
+  driver: Pick<DeliveryDriver, 'name'>,
+  pizzeriaName: string
+): string {
+  const payStatus = formatPaymentStatus(order.payment.status).label;
+  const payMethod = formatPaymentMethod(order.payment.method);
+  const itemsText = order.items
+    .map(
+      (i) =>
+        `• ${i.quantity}x ${i.name}${i.size !== 'unico' ? ` (${i.size})` : ''}${
+          i.crust && i.crust !== 'Tradicional' ? ` - Borda ${i.crust}` : ''
+        }`
+    )
+    .join('\n');
+
+  const lines = [
+    `*${pizzeriaName} — Nova Entrega ${order.code}*`,
+    `Entregador: ${driver.name}`,
+    ``,
+    `*Cliente:* ${order.customerName}`,
+    `*Telefone:* ${order.customerPhone}`,
+    `*Endereço:* ${order.deliveryAddress}`,
+    ``,
+    `*Itens:*`,
+    itemsText,
+    ``,
+    `*Total:* ${formatBRL(order.total)}`,
+    `*Pagamento:* ${payMethod} (${payStatus})`,
+  ];
+
+  if (order.payment.method === 'dinheiro' && order.payment.changeFor) {
+    lines.push(
+      `*Troco para:* ${formatBRL(order.payment.changeFor)} (Levar troco de ${formatBRL(
+        order.payment.changeAmount ?? Math.max(0, order.payment.changeFor - order.total)
+      )})`
+    );
+  }
+  if (order.pickupCode) {
+    lines.push(`*Código de coleta:* ${order.pickupCode}`);
+  }
+  if (order.orderNotes) {
+    lines.push(`*Obs:* ${order.orderNotes}`);
+  }
+
+  return lines.join('\n');
+}
+
+export function buildWhatsAppLink(phone: string, text: string): string {
+  let digits = phone.replace(/\D/g, '');
+  if (digits.length === 10 || digits.length === 11) {
+    digits = `55${digits}`;
+  }
+  return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
 }

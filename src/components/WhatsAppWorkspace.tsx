@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertCircle,
+  Bike,
   Bot,
   CheckCheck,
   ChevronRight,
@@ -9,13 +11,13 @@ import {
   MapPin,
   MessageSquarePlus,
   Phone,
+  Printer,
   Save,
   Search,
   Send,
   Truck,
   User,
   UserCheck,
-  AlertCircle,
 } from 'lucide-react';
 import type { AppSnapshot, Customer, Order } from '../types.ts';
 import {
@@ -23,6 +25,8 @@ import {
   formatPaymentMethod,
   formatPaymentStatus,
   formatTime,
+  getOrderServiceType,
+  ORDER_SERVICE_TYPE_META,
   ORDER_STAGE_META,
 } from '../utils/format.ts';
 import { ChatAttachmentRenderer } from './ChatAttachments.tsx';
@@ -45,6 +49,7 @@ interface WhatsAppWorkspaceProps {
     patch: Partial<Pick<Customer, 'name' | 'address' | 'neighborhood' | 'complement' | 'notes'>>
   ) => Promise<void>;
   onOpenNewChatModal: () => void;
+  onOpenReceipt?: (order: Order, tab?: 'comanda' | 'motoboy') => void;
 }
 
 type InboxFilter = 'all' | 'awaiting_payment' | 'active_orders' | 'handoff';
@@ -67,6 +72,7 @@ export const WhatsAppWorkspace: React.FC<WhatsAppWorkspaceProps> = ({
   onAdvanceOrder,
   onUpdateCustomer,
   onOpenNewChatModal,
+  onOpenReceipt,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filter, setFilter] = useState<InboxFilter>('all');
@@ -820,6 +826,14 @@ export const WhatsAppWorkspace: React.FC<WhatsAppWorkspaceProps> = ({
                       <span>Pedidos: <strong className="text-slate-900 font-mono tabular-nums">{selectedCustomer.totalOrders}</strong></span>
                       <span>Total Gasto: <strong className="text-slate-900 font-mono tabular-nums">{formatBRL(selectedCustomer.totalSpent)}</strong></span>
                     </div>
+                    {(selectedCustomer.cashbackBalance ?? 0) > 0 && (
+                      <div className="pt-1.5 flex items-center justify-between text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-md px-2.5 py-1.5">
+                        <span>Cashback Disponível</span>
+                        <strong className="font-mono tabular-nums">
+                          {formatBRL(selectedCustomer.cashbackBalance ?? 0)}
+                        </strong>
+                      </div>
+                    )}
                   </dl>
                 )}
               </div>
@@ -845,6 +859,8 @@ export const WhatsAppWorkspace: React.FC<WhatsAppWorkspaceProps> = ({
                           {ORDER_STAGE_META[activeOrder.stage].label}
                         </span>
                         <span className="font-mono text-slate-600 tabular-nums">
+                          {ORDER_SERVICE_TYPE_META[getOrderServiceType(activeOrder)].shortLabel}
+                          {activeOrder.tableNumber ? ` ${activeOrder.tableNumber}` : ''} ·{' '}
                           {activeOrder.estimatedMinutes > 0
                             ? `${activeOrder.estimatedMinutes} min`
                             : 'Finalizado'}
@@ -865,12 +881,31 @@ export const WhatsAppWorkspace: React.FC<WhatsAppWorkspaceProps> = ({
                         ))}
                       </ul>
 
+                      {activeOrder.discountTotal && activeOrder.discountTotal > 0 ? (
+                        <div className="flex items-center justify-between text-[11px] text-emerald-700 pt-1">
+                          <span>
+                            Descontos
+                            {activeOrder.couponCode ? ` (${activeOrder.couponCode})` : ''}
+                            {activeOrder.cashbackUsed ? ' + Cashback' : ''}
+                          </span>
+                          <span className="font-mono tabular-nums">
+                            -{formatBRL(activeOrder.discountTotal)}
+                          </span>
+                        </div>
+                      ) : null}
+
                       <div className="flex items-center justify-between pt-2 border-t border-slate-200/80 text-xs font-semibold text-slate-900">
                         <span>Total</span>
                         <span className="font-mono tabular-nums">
                           {formatBRL(activeOrder.total)}
                         </span>
                       </div>
+
+                      {activeOrder.riderName && (
+                        <div className="text-[11px] text-slate-600 pt-1">
+                          Motoboy: <strong className="text-slate-800">{activeOrder.riderName}</strong>
+                        </div>
+                      )}
                     </div>
 
                     {/* Payment Status & Action */}
@@ -889,6 +924,17 @@ export const WhatsAppWorkspace: React.FC<WhatsAppWorkspaceProps> = ({
                         </span>
                       </div>
 
+                      {activeOrder.payment.method === 'dinheiro' && activeOrder.payment.changeFor && (
+                        <div className="text-[11px] font-mono text-amber-800 tabular-nums">
+                          Troco para {formatBRL(activeOrder.payment.changeFor)} (levar{' '}
+                          {formatBRL(
+                            activeOrder.payment.changeAmount ??
+                              Math.max(0, activeOrder.payment.changeFor - activeOrder.total)
+                          )}
+                          )
+                        </div>
+                      )}
+
                       {activeOrder.payment.status === 'aguardando' && (
                         <button
                           type="button"
@@ -897,6 +943,29 @@ export const WhatsAppWorkspace: React.FC<WhatsAppWorkspaceProps> = ({
                         >
                           Confirmar Pagamento Agora
                         </button>
+                      )}
+
+                      {onOpenReceipt && (
+                        <div className="flex items-center gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => onOpenReceipt(activeOrder, 'comanda')}
+                            className="flex-1 py-1.5 px-2.5 text-[11px] font-medium bg-white border border-slate-200 text-slate-700 rounded-md hover:bg-slate-50 flex items-center justify-center gap-1.5"
+                          >
+                            <Printer className="w-3.5 h-3.5" />
+                            Comanda
+                          </button>
+                          {getOrderServiceType(activeOrder) === 'entrega' && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenReceipt(activeOrder, 'motoboy')}
+                              className="flex-1 py-1.5 px-2.5 text-[11px] font-medium bg-white border border-emerald-200 text-emerald-800 rounded-md hover:bg-emerald-50 flex items-center justify-center gap-1.5"
+                            >
+                              <Bike className="w-3.5 h-3.5" />
+                              Motoboy
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
 

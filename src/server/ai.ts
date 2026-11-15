@@ -2,37 +2,44 @@ import { FunctionDeclaration, GoogleGenAI, Type, Content, ThinkingLevel } from '
 import { store } from './store.ts';
 import type { MessageAttachment, OrderItem, PaymentMethod } from '../types.ts';
 
+let cachedAiClient: { apiKey: string; client: GoogleGenAI } | null = null;
+
 function getAiClient(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY não configurada nas variáveis de ambiente do servidor.');
   }
-  return new GoogleGenAI({
-    apiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
-      },
-    },
-  });
+  if (!cachedAiClient || cachedAiClient.apiKey !== apiKey) {
+    cachedAiClient = {
+      apiKey,
+      client: new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          },
+          timeout: 15_000,
+        },
+      }),
+    };
+  }
+  return cachedAiClient.client;
 }
 
 const getMenuDeclaration: FunctionDeclaration = {
   name: 'get_menu',
   description:
-    'Consulta o cardápio atualizado da pizzaria com pizzas disponíveis, descrições, tamanhos (média, grande, gigante), bebidas e taxa de entrega.',
+    'Envia o cartão visual do cardápio no WhatsApp quando o cliente pedir explicitamente para ver o cardápio ou sugestões.',
   parameters: {
     type: Type.OBJECT,
     properties: {
       category: {
         type: Type.STRING,
-        description:
-          'Opcional: filtrar por categoria ("Tradicionais", "Especiais", "Doces", "Bebidas") ou omitir para retornar tudo.',
+        description: 'Categoria opcional: "Tradicionais", "Especiais", "Doces" ou "Bebidas".',
       },
       highlightVisualMenu: {
         type: Type.BOOLEAN,
-        description:
-          'Defina como true quando o cliente pedir para ver o cardápio ou sugestões de sabores, para exibir o cartão visual com fotos no WhatsApp.',
+        description: 'Use true para anexar o cartão visual com fotos no chat.',
       },
     },
   },
@@ -41,30 +48,15 @@ const getMenuDeclaration: FunctionDeclaration = {
 const registerCustomerDeclaration: FunctionDeclaration = {
   name: 'register_or_update_customer',
   description:
-    'Salva ou atualiza automaticamente os dados cadastrais do cliente (nome, endereço, bairro, complemento, preferências) assim que ele informar qualquer dado na conversa.',
+    'Atualiza os dados do cliente no CRM quando ele informar nome, endereço, bairro, complemento ou observação sem ainda fechar pedido.',
   parameters: {
     type: Type.OBJECT,
     properties: {
-      name: {
-        type: Type.STRING,
-        description: 'Nome completo ou primeiro nome do cliente.',
-      },
-      address: {
-        type: Type.STRING,
-        description: 'Logradouro e número de entrega (ex: Rua Augusta, 1420).',
-      },
-      neighborhood: {
-        type: Type.STRING,
-        description: 'Bairro de entrega (ex: Consolação, Jardins).',
-      },
-      complement: {
-        type: Type.STRING,
-        description: 'Apartamento, bloco, casa ou ponto de referência.',
-      },
-      notes: {
-        type: Type.STRING,
-        description: 'Observações ou preferências do cliente (ex: sem cebola, interfone).',
-      },
+      name: { type: Type.STRING, description: 'Nome do cliente.' },
+      address: { type: Type.STRING, description: 'Rua e número de entrega.' },
+      neighborhood: { type: Type.STRING, description: 'Bairro de entrega.' },
+      complement: { type: Type.STRING, description: 'Apartamento, bloco ou referência.' },
+      notes: { type: Type.STRING, description: 'Preferências ou observações.' },
     },
   },
 };
@@ -72,35 +64,40 @@ const registerCustomerDeclaration: FunctionDeclaration = {
 const createOrderDeclaration: FunctionDeclaration = {
   name: 'create_order',
   description:
-    'Cria um novo pedido oficial na pizzaria e gera automaticamente o pagamento integrado (PIX Copia e Cola + QR Code ou link de cartão) além do rastreio no chat. Só chame após confirmar os itens, endereço de entrega e forma de pagamento.',
+    'Cria o pedido e gera pagamento PIX/Cartão ou rastreio na cozinha. Pode receber também os dados do cliente (nome/endereço) na mesma chamada para concluir tudo em 1 único passo.',
   parameters: {
     type: Type.OBJECT,
     properties: {
+      customerName: { type: Type.STRING, description: 'Nome do cliente (se informado nesta conversa).' },
+      deliveryAddress: { type: Type.STRING, description: 'Rua e número de entrega (se informado).' },
+      neighborhood: { type: Type.STRING, description: 'Bairro de entrega (se informado).' },
+      complement: { type: Type.STRING, description: 'Apartamento/referência (se informado).' },
+      notes: { type: Type.STRING, description: 'Observação do cliente/pedido.' },
       items: {
         type: Type.ARRAY,
-        description: 'Lista de itens do pedido.',
+        description: 'Itens do pedido.',
         items: {
           type: Type.OBJECT,
           properties: {
             menuItemId: {
               type: Type.STRING,
-              description: 'ID exato do item no cardápio (ex: pizza-margherita, pizza-calabresa).',
+              description: 'ID exato do item no cardápio.',
             },
             size: {
               type: Type.STRING,
-              description: 'Tamanho: "media", "grande", "gigante" ou "unico" (para bebidas).',
+              description: '"media", "grande", "gigante" ou "unico" (bebidas).',
             },
             crust: {
               type: Type.STRING,
-              description: 'Borda opcional: "Tradicional", "Catupiry (+R$ 16)", "Cheddar (+R$ 16)".',
+              description: '"Tradicional", "Catupiry (+R$ 16)" ou "Cheddar (+R$ 16)".',
             },
             quantity: {
               type: Type.INTEGER,
-              description: 'Quantidade do item.',
+              description: 'Quantidade.',
             },
             halfAndHalfItemName: {
               type: Type.STRING,
-              description: 'Se for pizza meio a meio, nome do segundo sabor.',
+              description: 'Segundo sabor se meio a meio.',
             },
           },
           required: ['menuItemId', 'size', 'quantity'],
@@ -108,7 +105,27 @@ const createOrderDeclaration: FunctionDeclaration = {
       },
       paymentMethod: {
         type: Type.STRING,
-        description: 'Forma de pagamento escolhida: "pix", "cartao_online", "cartao_entrega" ou "dinheiro".',
+        description: '"pix", "cartao_online", "cartao_entrega" ou "dinheiro".',
+      },
+      serviceType: {
+        type: Type.STRING,
+        description: '"entrega", "retirada" ou "mesa".',
+      },
+      tableNumber: {
+        type: Type.STRING,
+        description: 'Número da mesa se serviceType="mesa".',
+      },
+      changeFor: {
+        type: Type.NUMBER,
+        description: 'Valor para troco se paymentMethod="dinheiro".',
+      },
+      couponCode: {
+        type: Type.STRING,
+        description: 'Código do cupom informado.',
+      },
+      useCashback: {
+        type: Type.BOOLEAN,
+        description: 'true para resgatar saldo de cashback do cliente.',
       },
     },
     required: ['items', 'paymentMethod'],
@@ -117,14 +134,13 @@ const createOrderDeclaration: FunctionDeclaration = {
 
 const getOrderStatusDeclaration: FunctionDeclaration = {
   name: 'get_order_status',
-  description:
-    'Consulta o status em tempo real do pedido ativo ou mais recente do cliente (etapa na cozinha/forno/entrega, previsão de chegada, pagamento e entregador) e anexa o rastreio ao vivo no chat.',
+  description: 'Consulta o status ao vivo do pedido do cliente e envia o rastreio no chat.',
   parameters: {
     type: Type.OBJECT,
     properties: {
       orderCode: {
         type: Type.STRING,
-        description: 'Código opcional do pedido (ex: #2048). Se omitido, retorna o pedido mais recente do cliente.',
+        description: 'Código opcional (ex: #2048).',
       },
     },
   },
@@ -132,15 +148,11 @@ const getOrderStatusDeclaration: FunctionDeclaration = {
 
 const requestHumanHandoffDeclaration: FunctionDeclaration = {
   name: 'request_human_handoff',
-  description:
-    'Transfere o atendimento para um atendente humano quando o cliente solicitar explicitamente ou houver reclamação complexa.',
+  description: 'Transfere a conversa para um atendente humano.',
   parameters: {
     type: Type.OBJECT,
     properties: {
-      reason: {
-        type: Type.STRING,
-        description: 'Motivo resumido da transferência para a equipe.',
-      },
+      reason: { type: Type.STRING, description: 'Motivo resumido.' },
     },
     required: ['reason'],
   },
@@ -170,55 +182,32 @@ export async function generateWhatsAppAiReply(conversationId: string): Promise<A
   const { customer, messages, orders } = ctx;
   const activeOrder = orders[0];
 
-  const systemInstruction = `Você é o atendente virtual inteligente oficial da ${snapshot.settings.pizzeriaName} no WhatsApp.
-Tom de voz: ${snapshot.settings.aiPersonaTone}
+  const systemInstruction = `Você é atendente da ${snapshot.settings.pizzeriaName} no WhatsApp. Tom: ${snapshot.settings.aiPersonaTone}
 
-DADOS ATUAIS DO CLIENTE NO CRM:
-- ID: ${customer.id}
-- Nome: ${customer.name}
-- Telefone WhatsApp: ${customer.phone}
-- Endereço cadastrado: ${customer.address || 'NÃO INFORMADO'}
-- Bairro: ${customer.neighborhood || 'NÃO INFORMADO'}
-- Complemento: ${customer.complement || 'Nenhum'}
-- Observações: ${customer.notes || 'Nenhuma'}
+CLIENTE: ${customer.name} | Tel: ${customer.phone} | Endereço: ${customer.address || 'NÃO INFORMADO'} | Bairro: ${customer.neighborhood || 'NÃO INFORMADO'} | Comp: ${customer.complement || '-'} | Cashback: R$ ${(customer.cashbackBalance ?? 0).toFixed(2)}
+PEDIDO RECENTE: ${activeOrder ? `${activeOrder.code} | ${activeOrder.stage} | ${activeOrder.payment.method} (${activeOrder.payment.status}) | R$ ${activeOrder.total.toFixed(2)} | ETA ${activeOrder.estimatedMinutes}m` : 'Nenhum'}
+LOJA: Entrega R$ ${snapshot.settings.deliveryFee.toFixed(2)} (grátis retirada/mesa) | Tempo ${snapshot.settings.averagePrepMinutes}m | Bordas: Tradicional, Catupiry (+16), Cheddar (+16) | Pagamentos: pix, cartao_online, cartao_entrega, dinheiro.
+PROMOS: Cashback ${snapshot.promotions.cashback.enabled ? `${snapshot.promotions.cashback.percent}% (>=R$${snapshot.promotions.cashback.minOrderValue})` : 'off'} | Progressivo ${snapshot.promotions.progressiveEnabled ? snapshot.promotions.progressiveTiers.map((t) => `${t.minItems}+=${t.discountPercent}%`).join(', ') : 'off'} | Cupons: ${snapshot.coupons.filter((c) => c.active).map((c) => `${c.code}(${c.type === 'percent' ? `${c.value}%` : `R$${c.value}`})`).join(', ') || 'nenhum'}
 
-PEDIDO MAIS RECENTE DO CLIENTE:
-${
-  activeOrder
-    ? `- Código: ${activeOrder.code} | Etapa atual: ${activeOrder.stage} | Pagamento: ${activeOrder.payment.method} (${activeOrder.payment.status}) | Total: R$ ${activeOrder.total.toFixed(2)} | ETA: ${activeOrder.estimatedMinutes} min`
-    : '- Nenhum pedido ativo ainda.'
-}
-
-INFORMAÇÕES DA PIZZARIA:
-- Taxa de entrega padrão: R$ ${snapshot.settings.deliveryFee.toFixed(2)}
-- Tempo médio de entrega: ${snapshot.settings.averagePrepMinutes} minutos
-- Bordas recheadas disponíveis: Tradicional (grátis), Catupiry (+R$ 16,00), Cheddar (+R$ 16,00).
-- Formas de pagamento: PIX instantâneo (gerado direto no chat), Cartão Online (link direto no chat), Cartão na Entrega, Dinheiro.
-
-CARDÁPIO DISPONÍVEL AGORA (IDs exatos para usar em create_order):
+CARDÁPIO (use estes IDs em create_order, NÃO chame get_menu só para checar preço):
 ${snapshot.menu
   .filter((m) => m.available)
   .map(
     (m) =>
-      `- ${m.id} | ${m.name} (${m.category}): ${
-        m.prices.media ? `M R$${m.prices.media}, ` : ''
-      }G R$${m.prices.grande}${m.prices.gigante ? `, GG R$${m.prices.gigante}` : ''}`
+      `${m.id}|${m.name}: ${m.prices.media ? `M=${m.prices.media} ` : ''}G=${m.prices.grande}${m.prices.gigante ? ` GG=${m.prices.gigante}` : ''}`
   )
   .join('\n')}
 
-REGRAS OPERACIONAIS OBRIGATÓRIAS:
-1. Sempre que o cliente informar nome, endereço, bairro, complemento ou preferência, chame IMEDIATAMENTE a ferramenta \`register_or_update_customer\` para manter o cadastro automático atualizado.
-2. Quando o cliente pedir explicitamente para ver o cardápio ou sugestões, chame \`get_menu\` com \`highlightVisualMenu: true\`.
-3. Quando o cliente já disser o sabor, tamanho, endereço e forma de pagamento, você pode chamar \`register_or_update_customer\` e \`create_order\` diretamente na mesma rodada usando os IDs do cardápio acima!
-4. Antes de chamar \`create_order\`, garanta que você já sabe: (a) quais itens e tamanhos o cliente quer, (b) endereço completo de entrega (se ainda não estiver no CRM, peça antes de fechar!), e (c) forma de pagamento preferida.
-5. Ao criar um pedido com \`create_order\`:
-   - Se for PIX ou Cartão Online, informe o valor exato e diga que o cartão de pagamento já foi enviado logo abaixo no chat para pagamento com 1 clique / Copia e Cola.
-   - Se for pagamento na entrega, informe que o pedido foi enviado direto para a cozinha e o rastreio já está ativo.
-6. Se o cliente perguntar "onde está meu pedido", "status", "já saiu?", "quanto falta?", chame \`get_order_status\` e responda com precisão usando os dados retornados.
-7. Escreva mensagens concisas, bem formatadas para leitura rápida no WhatsApp (use quebras de linha curtas, sem markdown pesado como # títulos). Nunca invente preços fora do cardápio acima.`;
+REGRAS:
+1. Ao pedir cardápio/sabores, chame get_menu(highlightVisualMenu: true).
+2. Ao informar dados sem pedir ainda, chame register_or_update_customer.
+3. Ao pedir + informar dados/pagamento na mesma mensagem, chame APENAS create_order preenchendo customerName/deliveryAddress/neighborhood/complement dentro dele (1 única rodada!).
+4. Antes de create_order confirme itens, tipo (entrega com endereço, retirada ou mesa) e pagamento.
+5. Ao perguntar status, chame get_order_status.
+6. Respostas curtas e naturais de WhatsApp (2 a 5 linhas, sem # markdown).`;
 
-  // Build conversation history for Gemini
-  const recentMessages = messages.slice(-14);
+  // Keep recent history lean for fast inference
+  const recentMessages = messages.slice(-8);
   const contents: Content[] = [];
   for (const msg of recentMessages) {
     if (!msg.text || !msg.text.trim()) continue;
@@ -234,7 +223,6 @@ REGRAS OPERACIONAIS OBRIGATÓRIAS:
     }
   }
 
-  // Ensure history starts with a user turn and is non-empty
   while (contents.length > 0 && contents[0].role !== 'user') {
     contents.shift();
   }
@@ -248,9 +236,10 @@ REGRAS OPERACIONAIS OBRIGATÓRIAS:
 
   let currentContents: Content[] = contents;
 
-  const modelsToTry = ['gemini-4-hydrogen', 'gemini-3.1-flash-lite'] as const;
+  // Prioritize ultra-low-latency flash-lite with MINIMAL thinking; fallback to hydrogen LOW if unavailable
+  const modelsToTry = ['gemini-3.1-flash-lite', 'gemini-4-hydrogen'] as const;
 
-  for (let step = 0; step < 5; step++) {
+  for (let step = 0; step < 3; step++) {
     let response;
     let lastErr: unknown;
 
@@ -264,9 +253,9 @@ REGRAS OPERACIONAIS OBRIGATÓRIAS:
             tools: [{ functionDeclarations: TOOL_DECLARATIONS }],
             thinkingConfig: {
               thinkingLevel:
-                modelName === 'gemini-4-hydrogen'
-                  ? ThinkingLevel.LOW
-                  : ThinkingLevel.MINIMAL,
+                modelName === 'gemini-3.1-flash-lite'
+                  ? ThinkingLevel.MINIMAL
+                  : ThinkingLevel.LOW,
             },
           },
         });
@@ -279,7 +268,11 @@ REGRAS OPERACIONAIS OBRIGATÓRIAS:
           msg.includes('429') ||
           msg.includes('RESOURCE_EXHAUSTED') ||
           msg.includes('503') ||
-          msg.includes('500');
+          msg.includes('500') ||
+          msg.includes('404') ||
+          msg.includes('NOT_FOUND') ||
+          msg.includes('timeout') ||
+          msg.includes('AbortError');
         if (!isQuotaOrTransient) {
           throw err;
         }
@@ -304,7 +297,7 @@ REGRAS OPERACIONAIS OBRIGATÓRIAS:
       return {
         replyText:
           finalText ||
-          'Recebi sua mensagem! Como posso ajudar com o seu pedido hoje na Pizzaria Bella Fornalha?',
+          `Recebi sua mensagem! Como posso ajudar com o seu pedido hoje na ${snapshot.settings.pizzeriaName}?`,
         attachment,
         actionLabels,
       };
@@ -338,7 +331,6 @@ REGRAS OPERACIONAIS OBRIGATÓRIAS:
             id: m.id,
             name: m.name,
             category: m.category,
-            description: m.description,
             prices: m.prices,
           })),
         };
@@ -356,6 +348,26 @@ REGRAS OPERACIONAIS OBRIGATÓRIAS:
           customer: updated,
         };
       } else if (fc.name === 'create_order') {
+        // Also persist any inline customer details passed directly to create_order
+        const hasCustomerPatch =
+          typeof args.customerName === 'string' ||
+          typeof args.deliveryAddress === 'string' ||
+          typeof args.neighborhood === 'string' ||
+          typeof args.complement === 'string' ||
+          typeof args.notes === 'string';
+        if (hasCustomerPatch) {
+          store.upsertCustomerFields(customer.id, {
+            name: typeof args.customerName === 'string' ? args.customerName : undefined,
+            address: typeof args.deliveryAddress === 'string' ? args.deliveryAddress : undefined,
+            neighborhood: typeof args.neighborhood === 'string' ? args.neighborhood : undefined,
+            complement: typeof args.complement === 'string' ? args.complement : undefined,
+            notes: typeof args.notes === 'string' ? args.notes : undefined,
+          });
+          if (!actionLabels.includes('Cadastro automático atualizado')) {
+            actionLabels.push('Cadastro automático atualizado');
+          }
+        }
+
         const rawItems = Array.isArray(args.items) ? args.items : [];
         const paymentMethod = (
           ['pix', 'cartao_online', 'cartao_entrega', 'dinheiro'].includes(String(args.paymentMethod))
@@ -435,14 +447,24 @@ REGRAS OPERACIONAIS OBRIGATÓRIAS:
             error:
               unavailableNames.length > 0
                 ? `Os seguintes itens estão esgotados no momento: ${unavailableNames.join(', ')}. Sugira outro sabor disponível.`
-                : 'Nenhum item válido do cardápio foi identificado. Consulte get_menu e tente novamente.',
+                : 'Nenhum item válido do cardápio foi identificado.',
           };
         } else {
+          const serviceTypeRaw = String(args.serviceType ?? 'entrega').toLowerCase();
+          const serviceType =
+            serviceTypeRaw === 'retirada' || serviceTypeRaw === 'mesa'
+              ? serviceTypeRaw
+              : 'entrega';
           const createdOrder = store.createOrder({
             customerId: customer.id,
             conversationId,
+            serviceType,
+            tableNumber: typeof args.tableNumber === 'string' ? args.tableNumber : undefined,
             items: resolvedItems,
             paymentMethod,
+            changeFor: typeof args.changeFor === 'number' ? args.changeFor : undefined,
+            couponCode: typeof args.couponCode === 'string' ? args.couponCode : undefined,
+            useCashback: Boolean(args.useCashback),
           });
 
           if (paymentMethod === 'pix' || paymentMethod === 'cartao_online') {
@@ -465,9 +487,18 @@ REGRAS OPERACIONAIS OBRIGATÓRIAS:
             success: true,
             orderCode: createdOrder.code,
             orderId: createdOrder.id,
+            serviceType: createdOrder.serviceType,
+            subtotal: createdOrder.subtotal,
+            deliveryFee: createdOrder.deliveryFee,
+            discountTotal: createdOrder.discountTotal ?? 0,
+            couponCode: createdOrder.couponCode ?? null,
+            cashbackUsed: createdOrder.cashbackUsed ?? 0,
+            progressiveDiscount: createdOrder.progressiveDiscount ?? 0,
             total: createdOrder.total,
             paymentMethod: createdOrder.payment.method,
             paymentStatus: createdOrder.payment.status,
+            changeFor: createdOrder.payment.changeFor ?? null,
+            changeAmount: createdOrder.payment.changeAmount ?? null,
             pixGenerated: Boolean(createdOrder.payment.pixCode),
             estimatedMinutes: createdOrder.estimatedMinutes,
           };

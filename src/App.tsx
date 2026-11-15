@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Bell,
+  Bike,
   Flame,
   MessageSquare,
   MessageSquarePlus,
+  Percent,
   Pizza,
   Receipt,
   Settings,
@@ -16,9 +18,12 @@ import {
 import type {
   AppSnapshot,
   Customer,
+  DeliveryDriver,
   MenuItem,
+  Order,
   OrderStage,
   PaymentSoundType,
+  PromotionsConfig,
   StoreSettings,
 } from './types.ts';
 import { WhatsAppWorkspace } from './components/WhatsAppWorkspace.tsx';
@@ -27,6 +32,10 @@ import { DailySalesView } from './components/DailySalesView.tsx';
 import { CustomersView } from './components/CustomersView.tsx';
 import { MenuView } from './components/MenuView.tsx';
 import { SettingsView } from './components/SettingsView.tsx';
+import { DriversView } from './components/DriversView.tsx';
+import { PromotionsView } from './components/PromotionsView.tsx';
+import { PdvOrderModal, type PdvOrderPayload } from './components/PdvOrderModal.tsx';
+import { OrderReceiptModal } from './components/OrderReceiptModal.tsx';
 import {
   PAYMENT_SOUND_OPTIONS,
   playPaymentSound,
@@ -34,7 +43,15 @@ import {
 } from './utils/sound.ts';
 import { formatBRL } from './utils/format.ts';
 
-type NavTab = 'whatsapp' | 'kitchen' | 'sales' | 'customers' | 'menu' | 'settings';
+type NavTab =
+  | 'whatsapp'
+  | 'kitchen'
+  | 'sales'
+  | 'drivers'
+  | 'promotions'
+  | 'customers'
+  | 'menu'
+  | 'settings';
 
 export default function App() {
   const [snapshot, setSnapshot] = useState<AppSnapshot | null>(null);
@@ -49,6 +66,12 @@ export default function App() {
   const [newChatFirstMessage, setNewChatFirstMessage] = useState('');
   const [newChatError, setNewChatError] = useState<string | null>(null);
   const [creatingChat, setCreatingChat] = useState(false);
+
+  const [showPdvModal, setShowPdvModal] = useState(false);
+  const [receiptModal, setReceiptModal] = useState<{
+    orderId: string;
+    tab: 'comanda' | 'motoboy';
+  } | null>(null);
 
   const openNewChatModal = () => {
     const part1 = Math.floor(1000 + Math.random() * 9000);
@@ -444,6 +467,136 @@ export default function App() {
     }
   };
 
+  const handleCreatePdvOrder = async (payload: PdvOrderPayload) => {
+    unlockKitchenBellAudio();
+    const res = await fetch('/api/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data.snapshot) setSnapshot(data.snapshot);
+    if (!res.ok) {
+      throw new Error(data.error || 'Erro ao lançar pedido no PDV.');
+    }
+    if (data.order) {
+      triggerPaymentBell({
+        orderId: data.order.id,
+        orderCode: data.order.code,
+        customerName: data.order.customerName,
+        amount: data.order.total,
+        title: 'Novo Pedido PDV',
+      });
+    }
+  };
+
+  const handleAssignDriver = async (orderId: string, driverId: string | null) => {
+    const res = await fetch(`/api/orders/${orderId}/driver`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ driverId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data.snapshot) setSnapshot(data.snapshot);
+    if (!res.ok) {
+      throw new Error(data.error || 'Erro ao atribuir entregador.');
+    }
+  };
+
+  const handleMarkDispatchedToDriver = async (orderId: string) => {
+    const res = await fetch(`/api/orders/${orderId}/dispatch-driver`, {
+      method: 'POST',
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data.snapshot) setSnapshot(data.snapshot);
+  };
+
+  const handleAddDriver = async (input: { name: string; phone: string; vehicle?: string }) => {
+    const res = await fetch('/api/drivers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data.snapshot) setSnapshot(data.snapshot);
+    if (!res.ok) {
+      throw new Error(data.error || 'Erro ao cadastrar entregador.');
+    }
+  };
+
+  const handleUpdateDriver = async (
+    id: string,
+    patch: Partial<Omit<DeliveryDriver, 'id' | 'createdAt'>>
+  ) => {
+    const res = await fetch(`/api/drivers/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data.snapshot) setSnapshot(data.snapshot);
+    if (!res.ok) {
+      throw new Error(data.error || 'Erro ao atualizar entregador.');
+    }
+  };
+
+  const handleDeleteDriver = async (id: string) => {
+    const res = await fetch(`/api/drivers/${id}`, { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    if (data.snapshot) setSnapshot(data.snapshot);
+  };
+
+  const handleAddCoupon = async (input: {
+    code: string;
+    type: 'percent' | 'fixed';
+    value: number;
+    minOrder?: number;
+  }) => {
+    const res = await fetch('/api/coupons', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data.snapshot) setSnapshot(data.snapshot);
+    if (!res.ok) {
+      throw new Error(data.error || 'Erro ao criar cupom.');
+    }
+  };
+
+  const handleToggleCoupon = async (id: string, active: boolean) => {
+    const res = await fetch(`/api/coupons/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data.snapshot) setSnapshot(data.snapshot);
+  };
+
+  const handleDeleteCoupon = async (id: string) => {
+    const res = await fetch(`/api/coupons/${id}`, { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    if (data.snapshot) setSnapshot(data.snapshot);
+  };
+
+  const handleSavePromotions = async (patch: Partial<PromotionsConfig>) => {
+    const res = await fetch('/api/promotions', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data.snapshot) setSnapshot(data.snapshot);
+    if (!res.ok) {
+      throw new Error(data.error || 'Erro ao salvar regras de promoções.');
+    }
+  };
+
+  const openOrderReceipt = (order: Order, tab: 'comanda' | 'motoboy' = 'comanda') => {
+    setReceiptModal({ orderId: order.id, tab });
+  };
+
   if (loading) {
     return (
       <div className="h-screen flex items-center justify-center bg-slate-50 text-xs text-slate-500">
@@ -491,6 +644,17 @@ export default function App() {
       icon: Receipt,
     },
     {
+      id: 'drivers',
+      label: 'Entregadores',
+      icon: Bike,
+      count: (snapshot.drivers ?? []).filter((d) => d.active).length,
+    },
+    {
+      id: 'promotions',
+      label: 'Fidelidade & Cupons',
+      icon: Percent,
+    },
+    {
       id: 'customers',
       label: 'Clientes (Auto-CRM)',
       icon: Users,
@@ -509,6 +673,9 @@ export default function App() {
   ];
 
   const activeNavTitle = navItems.find((n) => n.id === activeTab)?.label ?? 'WhatsApp IA';
+  const activeReceiptOrder = receiptModal
+    ? snapshot.orders.find((o) => o.id === receiptModal.orderId)
+    : undefined;
 
   return (
     <div className="h-screen flex flex-col bg-[#FAF6F0] text-stone-900 overflow-hidden">
@@ -671,7 +838,7 @@ export default function App() {
         </aside>
 
         {/* Mobile bottom nav */}
-        <div className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-[#1F1A17] border-t border-stone-800 flex items-center justify-around py-1.5 px-2">
+        <div className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-[#1F1A17] border-t border-stone-800 flex items-center gap-1 overflow-x-auto py-1.5 px-2">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
@@ -680,7 +847,7 @@ export default function App() {
                 key={item.id}
                 type="button"
                 onClick={() => setActiveTab(item.id)}
-                className={`flex flex-col items-center gap-0.5 px-2 py-1 rounded text-[10px] font-medium ${
+                className={`flex flex-col items-center gap-0.5 px-2.5 py-1 rounded text-[10px] font-medium shrink-0 ${
                   isActive ? 'text-orange-400' : 'text-stone-400'
                 }`}
               >
@@ -704,6 +871,7 @@ export default function App() {
               onAdvanceOrder={handleAdvanceOrder}
               onUpdateCustomer={handleUpdateCustomer}
               onOpenNewChatModal={openNewChatModal}
+              onOpenReceipt={openOrderReceipt}
             />
           )}
 
@@ -717,6 +885,9 @@ export default function App() {
                 setSelectedConversationId(convId);
                 setActiveTab('whatsapp');
               }}
+              onOpenPdvModal={() => setShowPdvModal(true)}
+              onOpenReceipt={openOrderReceipt}
+              onAssignDriver={handleAssignDriver}
             />
           )}
 
@@ -729,6 +900,26 @@ export default function App() {
               }}
               onSendTelegramBackup={() => handleSendTelegramBackup()}
               onOpenSettings={() => setActiveTab('settings')}
+            />
+          )}
+
+          {activeTab === 'drivers' && (
+            <DriversView
+              snapshot={snapshot}
+              onAddDriver={handleAddDriver}
+              onUpdateDriver={handleUpdateDriver}
+              onDeleteDriver={handleDeleteDriver}
+              onOpenDriverDispatch={(order) => openOrderReceipt(order, 'motoboy')}
+            />
+          )}
+
+          {activeTab === 'promotions' && (
+            <PromotionsView
+              snapshot={snapshot}
+              onAddCoupon={handleAddCoupon}
+              onToggleCoupon={handleToggleCoupon}
+              onDeleteCoupon={handleDeleteCoupon}
+              onSavePromotions={handleSavePromotions}
             />
           )}
 
@@ -763,6 +954,28 @@ export default function App() {
           )}
         </main>
       </div>
+
+      {/* Modal: Novo Pedido PDV */}
+      {showPdvModal && (
+        <PdvOrderModal
+          snapshot={snapshot}
+          onClose={() => setShowPdvModal(false)}
+          onCreateOrder={handleCreatePdvOrder}
+        />
+      )}
+
+      {/* Modal: Comanda Térmica & Despacho Motoboy WhatsApp */}
+      {activeReceiptOrder && receiptModal && (
+        <OrderReceiptModal
+          order={activeReceiptOrder}
+          settings={snapshot.settings}
+          drivers={snapshot.drivers ?? []}
+          initialTab={receiptModal.tab}
+          onClose={() => setReceiptModal(null)}
+          onAssignDriver={handleAssignDriver}
+          onMarkDispatched={handleMarkDispatchedToDriver}
+        />
+      )}
 
       {/* Modal: Simular Novo Cliente WhatsApp */}
       {showNewChatModal && (

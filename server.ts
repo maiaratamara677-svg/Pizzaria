@@ -251,6 +251,102 @@ async function startServer() {
     res.json({ order, snapshot: store.getSnapshot() });
   });
 
+  // Create manual PDV / Balcão / Mesa / Entrega order
+  app.post('/api/orders', (req, res) => {
+    try {
+      const order = store.createPdvOrder(req.body);
+      res.json({ order, snapshot: store.getSnapshot() });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Erro ao criar pedido no PDV.';
+      res.status(400).json({ error: message });
+    }
+  });
+
+  // Assign delivery driver (motoboy) to order
+  app.patch('/api/orders/:id/driver', (req, res) => {
+    const { driverId } = (req.body ?? {}) as { driverId?: string | null };
+    const order = store.assignOrderDriver(req.params.id, driverId ?? null);
+    if (!order) {
+      res.status(404).json({ error: 'Pedido ou entregador não encontrado.' });
+      return;
+    }
+    res.json({ order, snapshot: store.getSnapshot() });
+  });
+
+  // Record driver WhatsApp dispatch timestamp
+  app.post('/api/orders/:id/dispatch-driver', (req, res) => {
+    const order = store.markOrderDispatchedToDriver(req.params.id);
+    if (!order) {
+      res.status(404).json({ error: 'Pedido não encontrado.' });
+      return;
+    }
+    res.json({ order, snapshot: store.getSnapshot() });
+  });
+
+  // Delivery drivers (Motoboys) CRUD
+  app.post('/api/drivers', (req, res) => {
+    try {
+      const driver = store.addDriver(req.body);
+      res.json({ driver, snapshot: store.getSnapshot() });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Erro ao cadastrar entregador.';
+      res.status(400).json({ error: message });
+    }
+  });
+
+  app.patch('/api/drivers/:id', (req, res) => {
+    const driver = store.updateDriver(req.params.id, req.body);
+    if (!driver) {
+      res.status(404).json({ error: 'Entregador não encontrado.' });
+      return;
+    }
+    res.json({ driver, snapshot: store.getSnapshot() });
+  });
+
+  app.delete('/api/drivers/:id', (req, res) => {
+    const ok = store.deleteDriver(req.params.id);
+    if (!ok) {
+      res.status(404).json({ error: 'Entregador não encontrado.' });
+      return;
+    }
+    res.json({ ok: true, snapshot: store.getSnapshot() });
+  });
+
+  // Coupons CRUD
+  app.post('/api/coupons', (req, res) => {
+    try {
+      const coupon = store.addCoupon(req.body);
+      res.json({ coupon, snapshot: store.getSnapshot() });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Erro ao criar cupom.';
+      res.status(400).json({ error: message });
+    }
+  });
+
+  app.patch('/api/coupons/:id', (req, res) => {
+    const coupon = store.updateCoupon(req.params.id, req.body);
+    if (!coupon) {
+      res.status(404).json({ error: 'Cupom não encontrado.' });
+      return;
+    }
+    res.json({ coupon, snapshot: store.getSnapshot() });
+  });
+
+  app.delete('/api/coupons/:id', (req, res) => {
+    const ok = store.deleteCoupon(req.params.id);
+    if (!ok) {
+      res.status(404).json({ error: 'Cupom não encontrado.' });
+      return;
+    }
+    res.json({ ok: true, snapshot: store.getSnapshot() });
+  });
+
+  // Promotions (Cashback & Progressive Discount)
+  app.patch('/api/promotions', (req, res) => {
+    const promotions = store.updatePromotions(req.body ?? {});
+    res.json({ promotions, snapshot: store.getSnapshot() });
+  });
+
   // Menu management
   app.patch('/api/menu/:id', (req, res) => {
     const updated = store.updateMenuItem(req.params.id, req.body);

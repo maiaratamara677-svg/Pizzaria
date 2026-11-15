@@ -4,16 +4,21 @@ import crypto from 'node:crypto';
 import type { Response as ExpressResponse } from 'express';
 import type {
   AppSnapshot,
+  CashbackConfig,
   ChatMessage,
   Conversation,
+  Coupon,
   Customer,
+  DeliveryDriver,
   MenuItem,
   Order,
   OrderChannel,
   OrderItem,
+  OrderServiceType,
   OrderStage,
   PaymentMethod,
   PaymentStatus,
+  PromotionsConfig,
   StoreSettings,
 } from '../types.ts';
 
@@ -210,6 +215,8 @@ function createInitialData(): AppSnapshot {
       registeredAt: iso(-180),
       totalOrders: 4,
       totalSpent: 342.0,
+      cashbackBalance: 12.5,
+      cashbackExpiresAt: iso(15 * 24 * 60),
     },
     {
       id: 'cust-2',
@@ -251,6 +258,8 @@ function createInitialData(): AppSnapshot {
     {
       id: 'ord-2048',
       code: '#2048',
+      channel: 'whatsapp',
+      serviceType: 'entrega',
       customerId: 'cust-1',
       conversationId: 'conv-1',
       customerName: 'Mariana Costa',
@@ -296,6 +305,8 @@ function createInitialData(): AppSnapshot {
     {
       id: 'ord-2049',
       code: '#2049',
+      channel: 'whatsapp',
+      serviceType: 'entrega',
       customerId: 'cust-2',
       conversationId: 'conv-2',
       customerName: 'Rafael Mendes',
@@ -435,6 +446,62 @@ function createInitialData(): AppSnapshot {
     },
   ];
 
+  const drivers: DeliveryDriver[] = [
+    {
+      id: 'drv-1',
+      name: 'Thiago Santos',
+      phone: '+55 11 99412-7780',
+      vehicle: 'Moto Honda CG 160 · ABC-4D21',
+      active: true,
+      createdAt: iso(-4320),
+    },
+    {
+      id: 'drv-2',
+      name: 'Lucas Ferreira',
+      phone: '+55 11 98205-3319',
+      vehicle: 'Moto Yamaha Factor · XYZ-9B10',
+      active: true,
+      createdAt: iso(-2880),
+    },
+  ];
+
+  const coupons: Coupon[] = [
+    {
+      id: 'cpn-1',
+      code: 'PIZZA10',
+      type: 'percent',
+      value: 10,
+      minOrder: 50,
+      active: true,
+      usageCount: 3,
+      createdAt: iso(-4320),
+    },
+    {
+      id: 'cpn-2',
+      code: 'BEMVINDO15',
+      type: 'fixed',
+      value: 15,
+      minOrder: 80,
+      active: true,
+      usageCount: 1,
+      createdAt: iso(-2880),
+    },
+  ];
+
+  const promotions: PromotionsConfig = {
+    cashback: {
+      enabled: true,
+      percent: 5,
+      validityDays: 15,
+      minOrderValue: 40,
+    },
+    progressiveEnabled: true,
+    progressiveTiers: [
+      { id: 'prog-1', minItems: 2, discountPercent: 5 },
+      { id: 'prog-2', minItems: 3, discountPercent: 10 },
+    ],
+  };
+
   return {
     settings,
     menu,
@@ -442,6 +509,9 @@ function createInitialData(): AppSnapshot {
     conversations,
     messages,
     orders,
+    drivers,
+    coupons,
+    promotions,
   };
 }
 
@@ -466,6 +536,23 @@ class PizzeriaStore {
               ...initial.settings,
               ...(parsed.settings ?? {}),
             },
+            drivers: Array.isArray(parsed.drivers) ? parsed.drivers : initial.drivers,
+            coupons: Array.isArray(parsed.coupons) ? parsed.coupons : initial.coupons,
+            promotions: parsed.promotions
+              ? {
+                  cashback: {
+                    ...initial.promotions.cashback,
+                    ...(parsed.promotions.cashback ?? {}),
+                  },
+                  progressiveEnabled:
+                    typeof parsed.promotions.progressiveEnabled === 'boolean'
+                      ? parsed.promotions.progressiveEnabled
+                      : initial.promotions.progressiveEnabled,
+                  progressiveTiers: Array.isArray(parsed.promotions.progressiveTiers)
+                    ? parsed.promotions.progressiveTiers
+                    : initial.promotions.progressiveTiers,
+                }
+              : initial.promotions,
           };
         }
       }
@@ -607,19 +694,112 @@ class PizzeriaStore {
     return customer;
   }
 
+  private getActiveCashbackBalance(customer: Customer): number {
+    const raw = Number(customer.cashbackBalance ?? 0);
+    if (!Number.isFinite(raw) || raw <= 0) return 0;
+    if (customer.cashbackExpiresAt) {
+      const exp = Date.parse(customer.cashbackExpiresAt);
+      if (Number.isFinite(exp) && exp < Date.now()) {
+        return 0;
+      }
+    }
+    return Math.round(raw * 100) / 100;
+  }
+
+  private awardCashbackForOrder(order: Order) {
+    const cfg = this.data.promotions.cashback;
+    if (!cfg.enabled || cfg.percent <= 0) return;
+    if (order.cashbackEarned && order.cashbackEarned > 0) return;
+    if (order.total < (cfg.minOrderValue ?? 0)) return;
+
+    const customer = this.data.customers.find((c) => c.id === order.customerId);
+    if (!customer) return;
+
+    const earned = Math.round(order.total * (cfg.percent / 100) * 100) / 100;
+    if (earned <= 0) return;
+
+    const currentValid = this.getActiveCashbackBalance(customer);
+    customer.cashbackBalance = Math.round((currentValid + earned) * 100) / 100;
+    const days = Math.max(1, Math.round(cfg.validityDays || 15));
+    customer.cashbackExpiresAt = new Date(Date.now() + days * 24 * 60 * 60_000).toISOString();
+    order.cashbackEarned = earned;
+  }
+
   createOrder(params: {
     customerId: string;
-    conversationId: string;
+    conversationId?: string;
+    channel?: OrderChannel;
+    serviceType?: OrderServiceType;
+    tableNumber?: string;
     items: OrderItem[];
     paymentMethod: PaymentMethod;
+    paymentStatusOverride?: PaymentStatus;
+    changeFor?: number;
+    couponCode?: string;
+    useCashback?: boolean;
+    orderNotes?: string;
     deliveryAddressOverride?: string;
   }): Order {
     const customer = this.data.customers.find((c) => c.id === params.customerId);
     if (!customer) throw new Error('Cliente não encontrado');
 
+    const serviceType: OrderServiceType = params.serviceType ?? 'entrega';
     const subtotal = params.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
-    const deliveryFee = this.data.settings.deliveryFee;
-    const total = subtotal + deliveryFee;
+    const deliveryFee = serviceType === 'entrega' ? this.data.settings.deliveryFee : 0;
+
+    // 1. Progressive discount based on total non-drink items (pizzas)
+    let progressiveDiscount = 0;
+    if (this.data.promotions.progressiveEnabled && this.data.promotions.progressiveTiers.length > 0) {
+      const pizzaQty = params.items.reduce((sum, item) => {
+        const menuEntry = this.data.menu.find((m) => m.id === item.menuItemId);
+        const isDrink = menuEntry?.category === 'Bebidas' || item.size === 'unico';
+        return isDrink ? sum : sum + item.quantity;
+      }, 0);
+      const matchingTier = this.data.promotions.progressiveTiers
+        .filter((t) => pizzaQty >= t.minItems && t.discountPercent > 0)
+        .sort((a, b) => b.discountPercent - a.discountPercent)[0];
+      if (matchingTier) {
+        progressiveDiscount = Math.round(subtotal * (matchingTier.discountPercent / 100) * 100) / 100;
+      }
+    }
+
+    // 2. Coupon discount
+    let couponDiscount = 0;
+    let appliedCouponCode: string | undefined;
+    if (params.couponCode && params.couponCode.trim()) {
+      const normalizedCode = params.couponCode.trim().toUpperCase();
+      const coupon = this.data.coupons.find(
+        (c) => c.active && c.code.toUpperCase() === normalizedCode
+      );
+      if (coupon && subtotal >= (coupon.minOrder ?? 0)) {
+        if (coupon.type === 'percent') {
+          couponDiscount = Math.round(subtotal * (coupon.value / 100) * 100) / 100;
+        } else {
+          couponDiscount = Math.min(subtotal, coupon.value);
+        }
+        if (couponDiscount > 0) {
+          appliedCouponCode = coupon.code;
+          coupon.usageCount += 1;
+        }
+      }
+    }
+
+    // 3. Cashback redemption
+    let cashbackUsed = 0;
+    const afterPromo = Math.max(0, subtotal + deliveryFee - progressiveDiscount - couponDiscount);
+    if (params.useCashback) {
+      const availableCashback = this.getActiveCashbackBalance(customer);
+      if (availableCashback > 0 && afterPromo > 0) {
+        cashbackUsed = Math.round(Math.min(availableCashback, afterPromo) * 100) / 100;
+        customer.cashbackBalance = Math.max(
+          0,
+          Math.round((availableCashback - cashbackUsed) * 100) / 100
+        );
+      }
+    }
+
+    const discountTotal = Math.round((progressiveDiscount + couponDiscount + cashbackUsed) * 100) / 100;
+    const total = Math.max(0, Math.round((subtotal + deliveryFee - discountTotal) * 100) / 100);
 
     const maxOrderNum = this.data.orders.reduce((max, o) => {
       const num = Number(o.id.replace(/\D/g, ''));
@@ -631,18 +811,28 @@ class PizzeriaStore {
     const txid = `BF${orderNum}`;
     const nowIso = new Date().toISOString();
 
-    const fullAddress =
-      params.deliveryAddressOverride ||
-      [customer.address, customer.neighborhood, customer.complement ? `(${customer.complement})` : '']
-        .filter(Boolean)
-        .join(' - ') ||
-      'Retirada no balcão';
+    let fullAddress = '';
+    if (serviceType === 'mesa') {
+      fullAddress = params.tableNumber?.trim()
+        ? `Mesa ${params.tableNumber.trim()}`
+        : 'Consumo no Local';
+    } else if (serviceType === 'retirada') {
+      fullAddress = 'Retirada no balcão';
+    } else {
+      fullAddress =
+        params.deliveryAddressOverride ||
+        [customer.address, customer.neighborhood, customer.complement ? `(${customer.complement})` : '']
+          .filter(Boolean)
+          .join(' - ') ||
+        'Retirada no balcão';
+    }
 
     let payment: Order['payment'];
     if (params.paymentMethod === 'pix') {
+      const isPaid = params.paymentStatusOverride === 'pago';
       payment = {
         method: 'pix',
-        status: 'aguardando',
+        status: isPaid ? 'pago' : 'aguardando',
         amount: total,
         pixCode: generatePixBrCode({
           pixKey: this.data.settings.pixKey,
@@ -652,30 +842,50 @@ class PizzeriaStore {
           txid,
         }),
         transactionId: `PIX-${txid}`,
-        expiresAt: new Date(Date.now() + 20 * 60_000).toISOString(),
+        paidAt: isPaid ? nowIso : undefined,
+        expiresAt: isPaid ? undefined : new Date(Date.now() + 20 * 60_000).toISOString(),
       };
     } else if (params.paymentMethod === 'cartao_online') {
+      const isPaid = params.paymentStatusOverride === 'pago';
       payment = {
         method: 'cartao_online',
-        status: 'aguardando',
+        status: isPaid ? 'pago' : 'aguardando',
         amount: total,
         checkoutUrl: `https://pay.fornodesk.app/checkout/${txid}`,
         transactionId: `CARD-${txid}`,
-        expiresAt: new Date(Date.now() + 20 * 60_000).toISOString(),
+        paidAt: isPaid ? nowIso : undefined,
+        expiresAt: isPaid ? undefined : new Date(Date.now() + 20 * 60_000).toISOString(),
       };
     } else {
+      const changeFor =
+        params.paymentMethod === 'dinheiro' &&
+        typeof params.changeFor === 'number' &&
+        Number.isFinite(params.changeFor) &&
+        params.changeFor > total
+          ? Math.round(params.changeFor * 100) / 100
+          : undefined;
+      const changeAmount =
+        changeFor !== undefined ? Math.round((changeFor - total) * 100) / 100 : undefined;
+
       payment = {
         method: params.paymentMethod,
-        status: 'pagamento_na_entrega',
+        status: params.paymentStatusOverride ?? 'pagamento_na_entrega',
         amount: total,
         transactionId: `ENT-${txid}`,
+        paidAt: params.paymentStatusOverride === 'pago' ? nowIso : undefined,
+        changeFor,
+        changeAmount,
       };
     }
 
+    const channel: OrderChannel = params.channel ?? 'whatsapp';
     const order: Order = {
       id,
       code,
-      channel: 'whatsapp',
+      channel,
+      serviceType,
+      tableNumber: serviceType === 'mesa' ? params.tableNumber?.trim() || undefined : undefined,
+      orderNotes: params.orderNotes?.trim() || undefined,
       customerId: customer.id,
       conversationId: params.conversationId,
       customerName: customer.name,
@@ -684,8 +894,12 @@ class PizzeriaStore {
       items: params.items,
       subtotal,
       deliveryFee,
+      discountTotal: discountTotal > 0 ? discountTotal : undefined,
+      couponCode: appliedCouponCode,
+      cashbackUsed: cashbackUsed > 0 ? cashbackUsed : undefined,
+      progressiveDiscount: progressiveDiscount > 0 ? progressiveDiscount : undefined,
       total,
-      stage: 'recebido',
+      stage: channel === 'pdv' || payment.status === 'pago' ? 'em_preparo' : 'recebido',
       payment,
       estimatedMinutes: this.data.settings.averagePrepMinutes,
       createdAt: nowIso,
@@ -695,12 +909,27 @@ class PizzeriaStore {
           stage: 'recebido',
           timestamp: nowIso,
           note:
-            payment.status === 'aguardando'
-              ? 'Pedido registrado. Aguardando confirmação de pagamento.'
-              : 'Pedido confirmado e enviado para a cozinha.',
+            channel === 'pdv'
+              ? `Pedido registrado no PDV (${serviceType === 'mesa' ? fullAddress : serviceType === 'retirada' ? 'Retirada' : 'Entrega'})`
+              : payment.status === 'aguardando'
+                ? 'Pedido registrado. Aguardando confirmação de pagamento.'
+                : 'Pedido confirmado e enviado para a cozinha.',
         },
+        ...(channel === 'pdv' || payment.status === 'pago'
+          ? [
+              {
+                stage: 'em_preparo' as OrderStage,
+                timestamp: nowIso,
+                note: 'Enviado automaticamente para preparo na cozinha.',
+              },
+            ]
+          : []),
       ],
     };
+
+    if (order.payment.status === 'pago') {
+      this.awardCashbackForOrder(order);
+    }
 
     this.data.orders.unshift(order);
     customer.totalOrders += 1;
@@ -930,6 +1159,8 @@ class PizzeriaStore {
     order.payment.paidAt = nowIso;
     order.updatedAt = nowIso;
 
+    this.awardCashbackForOrder(order);
+
     if (order.stage === 'recebido') {
       order.stage = 'em_preparo';
       order.estimatedMinutes = 28;
@@ -949,10 +1180,14 @@ class PizzeriaStore {
 
     // Automatically push WhatsApp confirmation + live tracking card into chat when linked
     if (order.conversationId) {
+      const cashbackNote =
+        order.cashbackEarned && order.cashbackEarned > 0
+          ? ` Você ganhou R$ ${order.cashbackEarned.toFixed(2).replace('.', ',')} de cashback para seu próximo pedido!`
+          : '';
       this.addMessage({
         conversationId: order.conversationId,
         sender: 'ai',
-        text: `Pagamento de R$ ${order.total.toFixed(2).replace('.', ',')} confirmado! Seu pedido ${order.code} já entrou em preparo na cozinha. Acompanhe o rastreio em tempo real abaixo:`,
+        text: `Pagamento de R$ ${order.total.toFixed(2).replace('.', ',')} confirmado! Seu pedido ${order.code} já entrou em preparo na cozinha.${cashbackNote} Acompanhe o rastreio em tempo real abaixo:`,
         status: 'read',
         aiActionLabel: `Pagamento aprovado · Rastreio ${order.code}`,
         attachment: {
@@ -989,6 +1224,7 @@ class PizzeriaStore {
     order.stage = nextStage;
     order.updatedAt = nowIso;
 
+    const driverLabel = order.riderName || 'Thiago Santos';
     const stageNotes: Record<OrderStage, { note: string; eta: number; chatMsg: string }> = {
       recebido: {
         note: 'Pedido recebido na fila',
@@ -1006,12 +1242,22 @@ class PizzeriaStore {
         chatMsg: `Atualização ${order.code}: Sua pizza acabou de entrar no forno a lenha! Previsão de entrega em ~18 min.`,
       },
       saiu_entrega: {
-        note: 'Saiu para entrega com o entregador Thiago S.',
-        eta: 10,
-        chatMsg: `Boa notícia! O pedido ${order.code} saiu para entrega com nosso entregador Thiago S. (chegada prevista em ~10 min).`,
+        note:
+          order.serviceType === 'retirada'
+            ? 'Pronto para retirada no balcão'
+            : order.serviceType === 'mesa'
+              ? 'Servido na mesa'
+              : `Saiu para entrega com o entregador ${driverLabel}`,
+        eta: order.serviceType === 'entrega' || !order.serviceType ? 10 : 0,
+        chatMsg:
+          order.serviceType === 'retirada'
+            ? `Boa notícia! Seu pedido ${order.code} está prontinho para retirada no balcão.`
+            : order.serviceType === 'mesa'
+              ? `Seu pedido ${order.code} acabou de sair do forno e está sendo levado à sua mesa!`
+              : `Boa notícia! O pedido ${order.code} foi produzido e saiu em rota com nosso entregador ${driverLabel} (chegada prevista em ~10 min).`,
       },
       entregue: {
-        note: 'Pedido entregue ao cliente com sucesso',
+        note: 'Pedido finalizado e entregue ao cliente',
         eta: 0,
         chatMsg: `Pedido ${order.code} entregue! Bom apetite e obrigado por pedir na ${this.data.settings.pizzeriaName}.`,
       },
@@ -1024,8 +1270,21 @@ class PizzeriaStore {
 
     const meta = stageNotes[nextStage];
     order.estimatedMinutes = meta.eta;
-    if (nextStage === 'saiu_entrega' && !order.riderName) {
-      order.riderName = 'Thiago S. (Moto Honda CG)';
+    if (nextStage === 'saiu_entrega' && !order.riderName && (order.serviceType ?? 'entrega') === 'entrega') {
+      const defaultDriver = this.data.drivers.find((d) => d.active) ?? this.data.drivers[0];
+      if (defaultDriver) {
+        order.driverId = defaultDriver.id;
+        order.riderName = `${defaultDriver.name}${defaultDriver.vehicle ? ` (${defaultDriver.vehicle})` : ''}`;
+        order.riderPhone = defaultDriver.phone;
+      } else {
+        order.riderName = 'Thiago Santos (Moto Honda CG)';
+      }
+    }
+
+    if (nextStage === 'entregue' && order.payment.status === 'pagamento_na_entrega') {
+      order.payment.status = 'pago';
+      order.payment.paidAt = nowIso;
+      this.awardCashbackForOrder(order);
     }
 
     order.timeline.push({
@@ -1048,6 +1307,283 @@ class PizzeriaStore {
     }
 
     return order;
+  }
+
+  assignOrderDriver(orderId: string, driverId: string | null): Order | null {
+    const order = this.data.orders.find((o) => o.id === orderId);
+    if (!order) return null;
+
+    if (!driverId) {
+      order.driverId = undefined;
+      order.riderName = undefined;
+      order.riderPhone = undefined;
+      order.updatedAt = new Date().toISOString();
+      this.save();
+      broadcastEvent('snapshot_update', this.data);
+      return order;
+    }
+
+    const driver = this.data.drivers.find((d) => d.id === driverId);
+    if (!driver) return null;
+
+    order.driverId = driver.id;
+    order.riderName = driver.vehicle ? `${driver.name} (${driver.vehicle})` : driver.name;
+    order.riderPhone = driver.phone;
+    order.updatedAt = new Date().toISOString();
+    this.save();
+    broadcastEvent('snapshot_update', this.data);
+    return order;
+  }
+
+  markOrderDispatchedToDriver(orderId: string): Order | null {
+    const order = this.data.orders.find((o) => o.id === orderId);
+    if (!order) return null;
+    const nowIso = new Date().toISOString();
+    order.dispatchedToDriverAt = nowIso;
+    order.updatedAt = nowIso;
+    if (order.riderName) {
+      order.timeline.push({
+        stage: order.stage,
+        timestamp: nowIso,
+        note: `Rota enviada no WhatsApp do entregador ${order.riderName}`,
+      });
+    }
+    this.save();
+    broadcastEvent('snapshot_update', this.data);
+    return order;
+  }
+
+  addDriver(input: { name: string; phone: string; vehicle?: string }): DeliveryDriver {
+    if (!input.name?.trim() || !input.phone?.trim()) {
+      throw new Error('Nome e WhatsApp do entregador são obrigatórios.');
+    }
+    const created: DeliveryDriver = {
+      id: `drv-${crypto.randomUUID().slice(0, 8)}`,
+      name: input.name.trim(),
+      phone: input.phone.trim(),
+      vehicle: input.vehicle?.trim() || 'Moto',
+      active: true,
+      createdAt: new Date().toISOString(),
+    };
+    this.data.drivers.push(created);
+    this.save();
+    broadcastEvent('snapshot_update', this.data);
+    return created;
+  }
+
+  updateDriver(id: string, patch: Partial<Omit<DeliveryDriver, 'id' | 'createdAt'>>): DeliveryDriver | null {
+    const driver = this.data.drivers.find((d) => d.id === id);
+    if (!driver) return null;
+    if (typeof patch.name === 'string' && patch.name.trim()) driver.name = patch.name.trim();
+    if (typeof patch.phone === 'string' && patch.phone.trim()) driver.phone = patch.phone.trim();
+    if (typeof patch.vehicle === 'string') driver.vehicle = patch.vehicle.trim();
+    if (typeof patch.active === 'boolean') driver.active = patch.active;
+    this.save();
+    broadcastEvent('snapshot_update', this.data);
+    return driver;
+  }
+
+  deleteDriver(id: string): boolean {
+    const idx = this.data.drivers.findIndex((d) => d.id === id);
+    if (idx === -1) return false;
+    this.data.drivers.splice(idx, 1);
+    this.save();
+    broadcastEvent('snapshot_update', this.data);
+    return true;
+  }
+
+  addCoupon(input: { code: string; type: 'percent' | 'fixed'; value: number; minOrder?: number }): Coupon {
+    const code = input.code?.trim().toUpperCase().replace(/\s+/g, '');
+    const value = Number(input.value);
+    if (!code || !Number.isFinite(value) || value <= 0) {
+      throw new Error('Informe um código de cupom e valor de desconto válidos.');
+    }
+    if (this.data.coupons.some((c) => c.code.toUpperCase() === code)) {
+      throw new Error(`O cupom ${code} já existe.`);
+    }
+    const created: Coupon = {
+      id: `cpn-${crypto.randomUUID().slice(0, 8)}`,
+      code,
+      type: input.type === 'fixed' ? 'fixed' : 'percent',
+      value: input.type === 'percent' ? Math.min(90, value) : value,
+      minOrder:
+        typeof input.minOrder === 'number' && Number.isFinite(input.minOrder) && input.minOrder > 0
+          ? input.minOrder
+          : undefined,
+      active: true,
+      usageCount: 0,
+      createdAt: new Date().toISOString(),
+    };
+    this.data.coupons.unshift(created);
+    this.save();
+    broadcastEvent('snapshot_update', this.data);
+    return created;
+  }
+
+  updateCoupon(id: string, patch: Partial<Pick<Coupon, 'active' | 'value' | 'minOrder'>>): Coupon | null {
+    const coupon = this.data.coupons.find((c) => c.id === id);
+    if (!coupon) return null;
+    if (typeof patch.active === 'boolean') coupon.active = patch.active;
+    if (typeof patch.value === 'number' && Number.isFinite(patch.value) && patch.value > 0) {
+      coupon.value = coupon.type === 'percent' ? Math.min(90, patch.value) : patch.value;
+    }
+    if (patch.minOrder !== undefined) {
+      coupon.minOrder = patch.minOrder > 0 ? patch.minOrder : undefined;
+    }
+    this.save();
+    broadcastEvent('snapshot_update', this.data);
+    return coupon;
+  }
+
+  deleteCoupon(id: string): boolean {
+    const idx = this.data.coupons.findIndex((c) => c.id === id);
+    if (idx === -1) return false;
+    this.data.coupons.splice(idx, 1);
+    this.save();
+    broadcastEvent('snapshot_update', this.data);
+    return true;
+  }
+
+  updatePromotions(patch: {
+    cashback?: Partial<CashbackConfig>;
+    progressiveEnabled?: boolean;
+    progressiveTiers?: { id?: string; minItems: number; discountPercent: number }[];
+  }): PromotionsConfig {
+    if (patch.cashback) {
+      const cb = patch.cashback;
+      if (typeof cb.enabled === 'boolean') this.data.promotions.cashback.enabled = cb.enabled;
+      if (typeof cb.percent === 'number' && Number.isFinite(cb.percent) && cb.percent >= 0) {
+        this.data.promotions.cashback.percent = Math.min(50, cb.percent);
+      }
+      if (typeof cb.validityDays === 'number' && Number.isFinite(cb.validityDays) && cb.validityDays >= 1) {
+        this.data.promotions.cashback.validityDays = Math.round(cb.validityDays);
+      }
+      if (typeof cb.minOrderValue === 'number' && Number.isFinite(cb.minOrderValue) && cb.minOrderValue >= 0) {
+        this.data.promotions.cashback.minOrderValue = cb.minOrderValue;
+      }
+    }
+    if (typeof patch.progressiveEnabled === 'boolean') {
+      this.data.promotions.progressiveEnabled = patch.progressiveEnabled;
+    }
+    if (Array.isArray(patch.progressiveTiers)) {
+      this.data.promotions.progressiveTiers = patch.progressiveTiers
+        .filter((t) => Number(t.minItems) >= 2 && Number(t.discountPercent) > 0)
+        .map((t, idx) => ({
+          id: t.id || `prog-${idx + 1}`,
+          minItems: Math.round(Number(t.minItems)),
+          discountPercent: Math.min(50, Number(t.discountPercent)),
+        }))
+        .sort((a, b) => a.minItems - b.minItems);
+    }
+    this.save();
+    broadcastEvent('snapshot_update', this.data);
+    return this.data.promotions;
+  }
+
+  createPdvOrder(input: {
+    customerName: string;
+    customerPhone?: string;
+    serviceType: OrderServiceType;
+    tableNumber?: string;
+    deliveryAddress?: string;
+    neighborhood?: string;
+    complement?: string;
+    items: {
+      menuItemId: string;
+      size: OrderItem['size'];
+      crust?: string;
+      quantity: number;
+      notes?: string;
+    }[];
+    paymentMethod: PaymentMethod;
+    paidNow?: boolean;
+    changeFor?: number;
+    couponCode?: string;
+    useCashback?: boolean;
+    orderNotes?: string;
+  }): Order {
+    if (!input.items || input.items.length === 0) {
+      throw new Error('Adicione ao menos 1 item ao pedido.');
+    }
+
+    const phone = input.customerPhone?.trim() || 'Balcão';
+    const digits = phone.replace(/\D/g, '');
+    let customer = digits
+      ? this.data.customers.find((c) => c.phone.replace(/\D/g, '') === digits)
+      : undefined;
+
+    if (!customer) {
+      customer = {
+        id: `cust-${crypto.randomUUID().slice(0, 8)}`,
+        phone,
+        name: input.customerName.trim() || (input.serviceType === 'mesa' ? `Mesa ${input.tableNumber || 'Local'}` : 'Cliente Balcão'),
+        address: input.deliveryAddress?.trim() || '',
+        neighborhood: input.neighborhood?.trim() || '',
+        complement: input.complement?.trim() || '',
+        notes: '',
+        channel: 'pdv',
+        autoRegistered: Boolean(input.customerName.trim()),
+        registeredAt: new Date().toISOString(),
+        totalOrders: 0,
+        totalSpent: 0,
+      };
+      this.data.customers.unshift(customer);
+    } else if (input.deliveryAddress?.trim() && !customer.address) {
+      customer.address = input.deliveryAddress.trim();
+      if (input.neighborhood?.trim()) customer.neighborhood = input.neighborhood.trim();
+    }
+
+    const resolvedItems: OrderItem[] = [];
+    for (const raw of input.items) {
+      const menuItem = this.data.menu.find((m) => m.id === raw.menuItemId);
+      if (!menuItem) continue;
+      const size: OrderItem['size'] =
+        menuItem.category === 'Bebidas' ? 'unico' : raw.size || 'grande';
+      const basePrice =
+        size === 'media'
+          ? (menuItem.prices.media ?? menuItem.prices.grande)
+          : size === 'gigante'
+            ? (menuItem.prices.gigante ?? menuItem.prices.grande)
+            : menuItem.prices.grande;
+      const crustExtra =
+        raw.crust && /catupiry|cheddar/i.test(raw.crust) && menuItem.category !== 'Bebidas' ? 16 : 0;
+
+      resolvedItems.push({
+        menuItemId: menuItem.id,
+        name: menuItem.name,
+        size,
+        crust: menuItem.category !== 'Bebidas' ? raw.crust || 'Tradicional' : undefined,
+        quantity: Math.max(1, Math.round(raw.quantity || 1)),
+        unitPrice: basePrice + crustExtra,
+        notes: raw.notes?.trim() || undefined,
+      });
+    }
+
+    if (resolvedItems.length === 0) {
+      throw new Error('Nenhum item válido encontrado no cardápio.');
+    }
+
+    const deliveryAddressOverride =
+      input.serviceType === 'entrega'
+        ? [input.deliveryAddress?.trim(), input.neighborhood?.trim(), input.complement?.trim() ? `(${input.complement.trim()})` : '']
+            .filter(Boolean)
+            .join(' - ')
+        : undefined;
+
+    return this.createOrder({
+      customerId: customer.id,
+      channel: 'pdv',
+      serviceType: input.serviceType,
+      tableNumber: input.tableNumber,
+      items: resolvedItems,
+      paymentMethod: input.paymentMethod,
+      paymentStatusOverride: input.paidNow ? 'pago' : undefined,
+      changeFor: input.changeFor,
+      couponCode: input.couponCode,
+      useCashback: input.useCashback,
+      orderNotes: input.orderNotes,
+      deliveryAddressOverride,
+    });
   }
 
   updateMenuItem(id: string, patch: Partial<MenuItem>): MenuItem | null {
@@ -1235,10 +1771,10 @@ class PizzeriaStore {
       );
     }
 
-    const defaults = createInitialData().settings;
+    const defaults = createInitialData();
     const restored: AppSnapshot = {
       settings: {
-        ...defaults,
+        ...defaults.settings,
         ...candidate.settings,
       },
       menu: candidate.menu,
@@ -1246,6 +1782,9 @@ class PizzeriaStore {
       conversations: candidate.conversations,
       messages: candidate.messages,
       orders: candidate.orders,
+      drivers: Array.isArray(candidate.drivers) ? candidate.drivers : defaults.drivers,
+      coupons: Array.isArray(candidate.coupons) ? candidate.coupons : defaults.coupons,
+      promotions: candidate.promotions ?? defaults.promotions,
     };
 
     this.data = restored;

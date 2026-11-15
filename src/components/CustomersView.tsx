@@ -82,6 +82,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ snapshot, onOpenCh
                 <th className="py-2.5 px-4">Endereço de Entrega</th>
                 <th className="py-2.5 px-4">Cadastro</th>
                 <th className="py-2.5 px-4 text-right">Pedidos</th>
+                <th className="py-2.5 px-4 text-right">Cashback</th>
                 <th className="py-2.5 px-4 text-right">Total Gasto</th>
                 <th className="py-2.5 px-4 text-right">Origem</th>
               </tr>
@@ -89,7 +90,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ snapshot, onOpenCh
             <tbody className="divide-y divide-slate-100 text-xs">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-10 text-center text-slate-500">
+                  <td colSpan={8} className="py-10 text-center text-slate-500">
                     Nenhum cliente encontrado.
                   </td>
                 </tr>
@@ -99,6 +100,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ snapshot, onOpenCh
                     (c) => c.customerId === customer.id
                   );
                   const chMeta = ORDER_CHANNEL_META[getOrderChannel(customer.channel)];
+                  const cashback = customer.cashbackBalance ?? 0;
                   return (
                     <tr key={customer.id} className="hover:bg-slate-50/80">
                       <td className="py-3 px-4">
@@ -142,6 +144,15 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ snapshot, onOpenCh
                       </td>
                       <td className="py-3 px-4 text-right font-mono tabular-nums text-slate-900">
                         {customer.totalOrders}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono tabular-nums">
+                        {cashback > 0 ? (
+                          <span className="font-semibold text-emerald-700">
+                            {formatBRL(cashback)}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">--</span>
+                        )}
                       </td>
                       <td className="py-3 px-4 text-right font-mono font-semibold tabular-nums text-slate-900">
                         {formatBRL(customer.totalSpent)}

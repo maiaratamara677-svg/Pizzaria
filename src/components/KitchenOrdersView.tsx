@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
+  Bike,
   CheckCircle2,
   ChevronRight,
   Clock,
@@ -8,17 +9,27 @@ import {
   MessageSquare,
   PackageCheck,
   Plus,
+  Printer,
   Search,
+  ShoppingBag,
   Truck,
 } from 'lucide-react';
-import type { AppSnapshot, Order, OrderChannel, OrderStage } from '../types.ts';
+import type {
+  AppSnapshot,
+  Order,
+  OrderChannel,
+  OrderServiceType,
+  OrderStage,
+} from '../types.ts';
 import {
   formatBRL,
   formatPaymentMethod,
   formatPaymentStatus,
   formatTime,
   getOrderChannel,
+  getOrderServiceType,
   ORDER_CHANNEL_META,
+  ORDER_SERVICE_TYPE_META,
   ORDER_STAGE_META,
 } from '../utils/format.ts';
 
@@ -28,13 +39,16 @@ interface KitchenOrdersViewProps {
   onConfirmPayment: (orderId: string) => Promise<void>;
   onSimulateMarketplaceOrder: (channel: 'ifood' | '99food') => Promise<void>;
   onOpenChat: (conversationId: string) => void;
+  onOpenPdvModal: () => void;
+  onOpenReceipt: (order: Order, tab?: 'comanda' | 'motoboy') => void;
+  onAssignDriver: (orderId: string, driverId: string | null) => Promise<void>;
 }
 
 const PIPELINE_COLUMNS: { stage: OrderStage; title: string; nextLabel: string }[] = [
   { stage: 'recebido', title: 'Recebidos', nextLabel: 'Iniciar Preparo' },
   { stage: 'em_preparo', title: 'Em Preparo', nextLabel: 'Enviar ao Forno' },
-  { stage: 'no_forno', title: 'No Forno', nextLabel: 'Despachar Entrega' },
-  { stage: 'saiu_entrega', title: 'Em Entrega', nextLabel: 'Marcar Entregue' },
+  { stage: 'no_forno', title: 'No Forno', nextLabel: 'Despachar / Pronto' },
+  { stage: 'saiu_entrega', title: 'Em Entrega / Retirada', nextLabel: 'Marcar Concluído' },
 ];
 
 export const KitchenOrdersView: React.FC<KitchenOrdersViewProps> = ({
@@ -43,17 +57,40 @@ export const KitchenOrdersView: React.FC<KitchenOrdersViewProps> = ({
   onConfirmPayment,
   onSimulateMarketplaceOrder,
   onOpenChat,
+  onOpenPdvModal,
+  onOpenReceipt,
+  onAssignDriver,
 }) => {
   const [search, setSearch] = useState('');
   const [channelFilter, setChannelFilter] = useState<'all' | OrderChannel>('all');
+  const [serviceFilter, setServiceFilter] = useState<'all' | OrderServiceType>('all');
   const [viewMode, setViewMode] = useState<'board' | 'table'>('board');
   const [simulatingChannel, setSimulatingChannel] = useState<'ifood' | '99food' | null>(null);
   const [simError, setSimError] = useState<string | null>(null);
 
   const channelCounts = useMemo(() => {
-    const counts = { all: snapshot.orders.length, whatsapp: 0, ifood: 0, '99food': 0 };
+    const counts: Record<'all' | OrderChannel, number> = {
+      all: snapshot.orders.length,
+      whatsapp: 0,
+      ifood: 0,
+      '99food': 0,
+      pdv: 0,
+    };
     for (const o of snapshot.orders) {
       counts[getOrderChannel(o.channel)] += 1;
+    }
+    return counts;
+  }, [snapshot.orders]);
+
+  const serviceCounts = useMemo(() => {
+    const counts: Record<'all' | OrderServiceType, number> = {
+      all: snapshot.orders.length,
+      entrega: 0,
+      retirada: 0,
+      mesa: 0,
+    };
+    for (const o of snapshot.orders) {
+      counts[getOrderServiceType(o)] += 1;
     }
     return counts;
   }, [snapshot.orders]);
@@ -62,6 +99,8 @@ export const KitchenOrdersView: React.FC<KitchenOrdersViewProps> = ({
     return snapshot.orders.filter((o) => {
       const ch = getOrderChannel(o.channel);
       if (channelFilter !== 'all' && ch !== channelFilter) return false;
+      const svc = getOrderServiceType(o);
+      if (serviceFilter !== 'all' && svc !== serviceFilter) return false;
       if (!search.trim()) return true;
       const q = search.toLowerCase();
       return (
@@ -72,7 +111,7 @@ export const KitchenOrdersView: React.FC<KitchenOrdersViewProps> = ({
         o.deliveryAddress.toLowerCase().includes(q)
       );
     });
-  }, [snapshot.orders, search, channelFilter]);
+  }, [snapshot.orders, search, channelFilter, serviceFilter]);
 
   const metrics = useMemo(() => {
     const active = filteredOrders.filter(
@@ -103,7 +142,10 @@ export const KitchenOrdersView: React.FC<KitchenOrdersViewProps> = ({
     const payStatus = formatPaymentStatus(order.payment.status);
     const channel = getOrderChannel(order.channel);
     const channelMeta = ORDER_CHANNEL_META[channel];
+    const serviceType = getOrderServiceType(order);
+    const serviceMeta = ORDER_SERVICE_TYPE_META[serviceType];
     const convId = order.conversationId;
+    const isOwnDelivery = serviceType === 'entrega' && order.deliveryBy !== 'marketplace';
 
     return (
       <div
@@ -117,25 +159,30 @@ export const KitchenOrdersView: React.FC<KitchenOrdersViewProps> = ({
             </span>
             <span className="text-slate-300" aria-hidden="true">·</span>
             <span className={`text-[11px] font-semibold shrink-0 ${channelMeta.textColor}`}>
-              {channelMeta.label}
+              {channelMeta.shortLabel}
             </span>
-            {order.externalDisplayId && (
-              <>
-                <span className="text-slate-300" aria-hidden="true">·</span>
-                <span className="text-[11px] font-mono text-slate-500 tabular-nums truncate">
-                  {order.externalDisplayId}
-                </span>
-              </>
-            )}
+            <span className="text-slate-300" aria-hidden="true">·</span>
+            <span className={`text-[11px] font-semibold shrink-0 ${serviceMeta.textColor}`}>
+              {serviceType === 'mesa' && order.tableNumber
+                ? `Mesa ${order.tableNumber}`
+                : serviceMeta.shortLabel}
+            </span>
           </div>
           <span className="text-[11px] font-mono text-slate-400 tabular-nums shrink-0">
             {formatTime(order.createdAt)}
           </span>
         </div>
 
-        <div className="text-xs font-medium text-slate-800 truncate">{order.customerName}</div>
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-xs font-medium text-slate-800 truncate">{order.customerName}</div>
+          {order.externalDisplayId && (
+            <span className="text-[11px] font-mono text-slate-500 tabular-nums shrink-0">
+              {order.externalDisplayId}
+            </span>
+          )}
+        </div>
 
-        {(order.pickupCode || channel !== 'whatsapp') && (
+        {(order.pickupCode || channel === 'ifood' || channel === '99food') && (
           <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-0.5">
             <span>
               {order.deliveryBy === 'marketplace' ? 'Entregador Parceiro' : 'Entrega Própria'}
@@ -178,21 +225,59 @@ export const KitchenOrdersView: React.FC<KitchenOrdersViewProps> = ({
           </div>
         )}
 
-        <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-100">
-          <span className={`font-medium ${payStatus.colorClass}`}>
-            {formatPaymentMethod(order.payment.method)} · {payStatus.label}
-          </span>
-          <span className="font-mono font-semibold text-slate-900 tabular-nums">
-            {formatBRL(order.total)}
-          </span>
+        {isOwnDelivery && (
+          <div className="pt-1">
+            <select
+              aria-label={`Entregador do pedido ${order.code}`}
+              value={order.driverId ?? ''}
+              onChange={(e) => void onAssignDriver(order.id, e.target.value || null)}
+              className="w-full px-2 py-1 text-[11px] bg-[#FAF6F0] border border-stone-200 rounded text-stone-700 focus:outline-none focus:border-orange-600"
+            >
+              <option value="">Selecionar motoboy...</option>
+              {snapshot.drivers.map((d) => (
+                <option key={d.id} value={d.id}>
+                  Motoboy: {d.name} {!d.active ? '(Indisp.)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <div className="space-y-1 pt-2 border-t border-slate-100">
+          <div className="flex items-center justify-between text-xs">
+            <span className={`font-medium ${payStatus.colorClass}`}>
+              {formatPaymentMethod(order.payment.method)} · {payStatus.label}
+            </span>
+            <span className="font-mono font-semibold text-slate-900 tabular-nums">
+              {formatBRL(order.total)}
+            </span>
+          </div>
+          {(order.discountTotal && order.discountTotal > 0) ||
+          (order.payment.method === 'dinheiro' && order.payment.changeFor) ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono tabular-nums">
+              {order.discountTotal && order.discountTotal > 0 ? (
+                <span className="text-emerald-700">
+                  Desc: -{formatBRL(order.discountTotal)}
+                  {order.couponCode ? ` (${order.couponCode})` : ''}
+                </span>
+              ) : (
+                <span />
+              )}
+              {order.payment.method === 'dinheiro' && order.payment.changeFor ? (
+                <span className="text-amber-800">
+                  Troco p/ {formatBRL(order.payment.changeFor)}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
-        <div className="flex items-center gap-2 pt-1">
+        <div className="flex items-center gap-1.5 pt-1">
           {order.payment.status === 'aguardando' && (
             <button
               type="button"
               onClick={() => onConfirmPayment(order.id)}
-              className="flex-1 py-1.5 px-2.5 text-[11px] font-semibold bg-emerald-700 text-white rounded-md hover:bg-emerald-800 transition-colors whitespace-nowrap"
+              className="flex-1 py-1.5 px-2 text-[11px] font-semibold bg-emerald-700 text-white rounded-md hover:bg-emerald-800 transition-colors whitespace-nowrap"
             >
               {order.payment.method === 'pix' ? 'Confirmar PIX' : 'Confirmar Pgto'}
             </button>
@@ -201,10 +286,32 @@ export const KitchenOrdersView: React.FC<KitchenOrdersViewProps> = ({
             <button
               type="button"
               onClick={() => onAdvanceOrder(order.id)}
-              className="flex-1 py-1.5 px-2.5 text-[11px] font-semibold bg-slate-900 text-white rounded-md hover:bg-slate-800 transition-colors flex items-center justify-center gap-1 whitespace-nowrap"
+              className="flex-1 py-1.5 px-2 text-[11px] font-semibold bg-slate-900 text-white rounded-md hover:bg-slate-800 transition-colors flex items-center justify-center gap-1 whitespace-nowrap"
             >
               {nextLabel}
               <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onOpenReceipt(order, 'comanda')}
+            className="p-1.5 text-slate-600 border border-slate-200 rounded-md hover:bg-slate-50 transition-colors shrink-0"
+            title="Imprimir comanda térmica"
+          >
+            <Printer className="w-3.5 h-3.5" />
+          </button>
+          {isOwnDelivery && (
+            <button
+              type="button"
+              onClick={() => onOpenReceipt(order, 'motoboy')}
+              className={`p-1.5 border rounded-md transition-colors shrink-0 ${
+                order.dispatchedToDriverAt
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                  : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
+              title="Enviar rota no WhatsApp do Motoboy"
+            >
+              <Bike className="w-3.5 h-3.5" />
             </button>
           )}
           {convId && (
@@ -223,16 +330,24 @@ export const KitchenOrdersView: React.FC<KitchenOrdersViewProps> = ({
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <div className="p-6 max-w-7xl mx-auto space-y-5">
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold text-slate-900">Pedidos & Cozinha em Tempo Real</h1>
           <p className="text-xs text-slate-500 mt-1">
-            Central unificada para pedidos do WhatsApp, iFood e 99Food com atualização automática da cozinha.
+            Central unificada para pedidos WhatsApp, iFood, 99Food e PDV com comanda térmica e despacho para motoboy.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={onOpenPdvModal}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold bg-emerald-700 text-white rounded-md hover:bg-emerald-800 transition-colors whitespace-nowrap shrink-0"
+          >
+            <ShoppingBag className="w-3.5 h-3.5" />
+            Novo Pedido (PDV)
+          </button>
           <button
             type="button"
             disabled={simulatingChannel !== null}
@@ -267,7 +382,7 @@ export const KitchenOrdersView: React.FC<KitchenOrdersViewProps> = ({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Buscar pedido, coleta ou cliente..."
-              className="pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-md w-56 focus:outline-none focus:border-emerald-600"
+              className="pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-md w-52 focus:outline-none focus:border-emerald-600"
             />
           </div>
           <div className="flex items-center p-1 bg-slate-200/70 rounded-lg">
@@ -299,33 +414,63 @@ export const KitchenOrdersView: React.FC<KitchenOrdersViewProps> = ({
         </div>
       )}
 
-      {/* Channel Filter Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center p-1 bg-stone-200/75 rounded-lg">
-          {(
-            [
-              { id: 'all', label: 'Todos os Canais', count: channelCounts.all },
-              { id: 'whatsapp', label: 'WhatsApp', count: channelCounts.whatsapp },
-              { id: 'ifood', label: 'iFood', count: channelCounts.ifood },
-              { id: '99food', label: '99Food', count: channelCounts['99food'] },
-            ] as const
-          ).map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setChannelFilter(tab.id)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
-                channelFilter === tab.id
-                  ? 'bg-white text-stone-900 shadow-xs font-semibold'
-                  : 'text-stone-600 hover:text-stone-900'
-              }`}
-            >
-              <span>{tab.label}</span>
-              <span className="font-mono text-[11px] text-stone-400 tabular-nums">
-                {tab.count}
-              </span>
-            </button>
-          ))}
+      {/* Channel & Service Type Filter Bar */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex items-center p-1 bg-stone-200/75 rounded-lg overflow-x-auto">
+            {(
+              [
+                { id: 'all', label: 'Todos', count: channelCounts.all },
+                { id: 'whatsapp', label: 'WhatsApp', count: channelCounts.whatsapp },
+                { id: 'ifood', label: 'iFood', count: channelCounts.ifood },
+                { id: '99food', label: '99Food', count: channelCounts['99food'] },
+                { id: 'pdv', label: 'PDV', count: channelCounts.pdv },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setChannelFilter(tab.id)}
+                className={`px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
+                  channelFilter === tab.id
+                    ? 'bg-white text-stone-900 shadow-xs font-semibold'
+                    : 'text-stone-600 hover:text-stone-900'
+                }`}
+              >
+                <span>{tab.label}</span>
+                <span className="font-mono text-[11px] text-stone-400 tabular-nums">
+                  {tab.count}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center p-1 bg-stone-200/75 rounded-lg overflow-x-auto">
+            {(
+              [
+                { id: 'all', label: 'Todos Tipos', count: serviceCounts.all },
+                { id: 'entrega', label: 'Entrega', count: serviceCounts.entrega },
+                { id: 'retirada', label: 'Retirada', count: serviceCounts.retirada },
+                { id: 'mesa', label: 'Mesa', count: serviceCounts.mesa },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setServiceFilter(tab.id)}
+                className={`px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
+                  serviceFilter === tab.id
+                    ? 'bg-white text-stone-900 shadow-xs font-semibold'
+                    : 'text-stone-600 hover:text-stone-900'
+                }`}
+              >
+                <span>{tab.label}</span>
+                <span className="font-mono text-[11px] text-stone-400 tabular-nums">
+                  {tab.count}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="text-xs text-stone-500 flex items-center gap-3">
@@ -414,14 +559,17 @@ export const KitchenOrdersView: React.FC<KitchenOrdersViewProps> = ({
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-semibold text-slate-500">
-                  <th className="py-2.5 px-4">Pedido</th>
-                  <th className="py-2.5 px-4">Canal</th>
-                  <th className="py-2.5 px-4">Cliente</th>
-                  <th className="py-2.5 px-4">Itens</th>
-                  <th className="py-2.5 px-4">Etapa</th>
-                  <th className="py-2.5 px-4">Pagamento</th>
-                  <th className="py-2.5 px-4 text-right">Total</th>
-                  <th className="py-2.5 px-4 text-right">Ações</th>
+                  <th className="py-2.5 px-3">Impr.</th>
+                  <th className="py-2.5 px-3">Pedido</th>
+                  <th className="py-2.5 px-3">Tipo</th>
+                  <th className="py-2.5 px-3">Origem</th>
+                  <th className="py-2.5 px-3">Cliente</th>
+                  <th className="py-2.5 px-3">Itens</th>
+                  <th className="py-2.5 px-3">Entregador</th>
+                  <th className="py-2.5 px-3">Etapa</th>
+                  <th className="py-2.5 px-3">Pagamento / Troco</th>
+                  <th className="py-2.5 px-3 text-right">Total</th>
+                  <th className="py-2.5 px-3 text-right">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs">
@@ -429,10 +577,24 @@ export const KitchenOrdersView: React.FC<KitchenOrdersViewProps> = ({
                   const stageMeta = ORDER_STAGE_META[order.stage];
                   const payMeta = formatPaymentStatus(order.payment.status);
                   const chMeta = ORDER_CHANNEL_META[getOrderChannel(order.channel)];
+                  const svc = getOrderServiceType(order);
+                  const svcMeta = ORDER_SERVICE_TYPE_META[svc];
                   const convId = order.conversationId;
+                  const isOwnDelivery = svc === 'entrega' && order.deliveryBy !== 'marketplace';
+
                   return (
                     <tr key={order.id} className="hover:bg-slate-50/80">
-                      <td className="py-3 px-4 font-mono font-semibold text-slate-900 tabular-nums">
+                      <td className="py-3 px-3">
+                        <button
+                          type="button"
+                          onClick={() => onOpenReceipt(order, 'comanda')}
+                          className="p-1.5 text-slate-600 border border-slate-200 rounded hover:bg-slate-100"
+                          title="Imprimir Comanda"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                      <td className="py-3 px-3 font-mono font-semibold text-slate-900 tabular-nums">
                         <div>{order.code}</div>
                         {order.externalDisplayId && (
                           <div className="text-[11px] font-normal text-slate-400">
@@ -440,33 +602,80 @@ export const KitchenOrdersView: React.FC<KitchenOrdersViewProps> = ({
                           </div>
                         )}
                       </td>
-                      <td className="py-3 px-4">
-                        <div className={`font-semibold ${chMeta.textColor}`}>{chMeta.label}</div>
+                      <td className={`py-3 px-3 font-semibold ${svcMeta.textColor}`}>
+                        {svc === 'mesa' && order.tableNumber
+                          ? `Mesa ${order.tableNumber}`
+                          : svcMeta.shortLabel}
+                      </td>
+                      <td className="py-3 px-3">
+                        <div className={`font-semibold ${chMeta.textColor}`}>{chMeta.shortLabel}</div>
                         {order.pickupCode && (
                           <div className="text-[11px] font-mono text-slate-500 tabular-nums">
                             Coleta {order.pickupCode}
                           </div>
                         )}
                       </td>
-                      <td className="py-3 px-4">
+                      <td className="py-3 px-3">
                         <div className="font-medium text-slate-900">{order.customerName}</div>
                         <div className="text-[11px] text-slate-500 font-mono tabular-nums">
                           {order.customerPhone}
                         </div>
                       </td>
-                      <td className="py-3 px-4 text-slate-600 max-w-xs truncate">
+                      <td className="py-3 px-3 text-slate-600 max-w-[200px] truncate">
                         {order.items.map((i) => `${i.quantity}x ${i.name}`).join(', ')}
                       </td>
-                      <td className={`py-3 px-4 font-medium ${stageMeta.textColor}`}>
-                        {stageMeta.label}
+                      <td className="py-3 px-3">
+                        {isOwnDelivery ? (
+                          <select
+                            aria-label={`Entregador do pedido ${order.code}`}
+                            value={order.driverId ?? ''}
+                            onChange={(e) => void onAssignDriver(order.id, e.target.value || null)}
+                            className="px-2 py-1 text-[11px] bg-white border border-slate-200 rounded text-slate-700"
+                          >
+                            <option value="">Sem motoboy</option>
+                            {snapshot.drivers.map((d) => (
+                              <option key={d.id} value={d.id}>
+                                {d.name}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="text-[11px] text-slate-400">
+                            {order.deliveryBy === 'marketplace' ? 'Parceiro' : '--'}
+                          </span>
+                        )}
                       </td>
-                      <td className={`py-3 px-4 font-medium ${payMeta.colorClass}`}>
-                        {formatPaymentMethod(order.payment.method)} · {payMeta.label}
+                      <td className={`py-3 px-3 font-medium ${stageMeta.textColor}`}>
+                        {stageMeta.shortLabel}
                       </td>
-                      <td className="py-3 px-4 text-right font-mono font-semibold text-slate-900 tabular-nums">
-                        {formatBRL(order.total)}
+                      <td className="py-3 px-3">
+                        <div className={`font-medium ${payMeta.colorClass}`}>
+                          {formatPaymentMethod(order.payment.method)} · {payMeta.label}
+                        </div>
+                        {order.payment.method === 'dinheiro' && order.payment.changeFor && (
+                          <div className="text-[11px] font-mono text-amber-800 tabular-nums">
+                            Troco p/ {formatBRL(order.payment.changeFor)}
+                          </div>
+                        )}
                       </td>
-                      <td className="py-3 px-4 text-right whitespace-nowrap space-x-2">
+                      <td className="py-3 px-3 text-right font-mono font-semibold text-slate-900 tabular-nums">
+                        <div>{formatBRL(order.total)}</div>
+                        {order.discountTotal && order.discountTotal > 0 ? (
+                          <div className="text-[10px] text-emerald-700">
+                            -{formatBRL(order.discountTotal)}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td className="py-3 px-3 text-right whitespace-nowrap space-x-1.5">
+                        {isOwnDelivery && (
+                          <button
+                            type="button"
+                            onClick={() => onOpenReceipt(order, 'motoboy')}
+                            className="px-2 py-1 text-[11px] font-medium border border-emerald-200 bg-emerald-50 text-emerald-800 rounded hover:bg-emerald-100"
+                          >
+                            Motoboy
+                          </button>
+                        )}
                         {order.stage !== 'entregue' && order.stage !== 'cancelado' && (
                           <button
                             type="button"
@@ -480,7 +689,7 @@ export const KitchenOrdersView: React.FC<KitchenOrdersViewProps> = ({
                           <button
                             type="button"
                             onClick={() => onOpenChat(convId)}
-                            className="px-2.5 py-1 text-[11px] font-medium border border-slate-200 text-slate-700 rounded hover:bg-slate-50"
+                            className="px-2 py-1 text-[11px] font-medium border border-slate-200 text-slate-700 rounded hover:bg-slate-50"
                           >
                             Chat
                           </button>
@@ -500,7 +709,7 @@ export const KitchenOrdersView: React.FC<KitchenOrdersViewProps> = ({
         <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-2">
           <div className="flex items-center gap-2 text-xs font-semibold text-slate-800">
             <PackageCheck className="w-4 h-4 text-emerald-700" />
-            <span>Pedidos Entregues Recentemente</span>
+            <span>Pedidos Concluídos Recentemente</span>
           </div>
           <div className="divide-y divide-slate-100">
             {filteredOrders
@@ -508,15 +717,24 @@ export const KitchenOrdersView: React.FC<KitchenOrdersViewProps> = ({
               .map((o) => {
                 const chMeta = ORDER_CHANNEL_META[getOrderChannel(o.channel)];
                 return (
-                  <div key={o.id} className="py-2 flex items-center justify-between text-xs">
-                    <span className="text-slate-700">
+                  <div key={o.id} className="py-2 flex items-center justify-between gap-3 text-xs">
+                    <span className="text-slate-700 truncate">
                       <strong className="font-mono tabular-nums">{o.code}</strong> ·{' '}
-                      <span className={`font-medium ${chMeta.textColor}`}>{chMeta.label}</span> ·{' '}
+                      <span className={`font-medium ${chMeta.textColor}`}>{chMeta.shortLabel}</span> ·{' '}
                       {o.customerName} · {o.deliveryAddress}
                     </span>
-                    <span className="font-mono font-semibold text-emerald-700 tabular-nums">
-                      {formatBRL(o.total)}
-                    </span>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => onOpenReceipt(o, 'comanda')}
+                        className="text-[11px] text-slate-600 hover:text-slate-900 underline"
+                      >
+                        Comanda
+                      </button>
+                      <span className="font-mono font-semibold text-emerald-700 tabular-nums">
+                        {formatBRL(o.total)}
+                      </span>
+                    </div>
                   </div>
                 );
               })}

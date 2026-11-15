@@ -7,7 +7,9 @@ import {
   formatPaymentStatus,
   formatTime,
   getOrderChannel,
+  getOrderServiceType,
   ORDER_CHANNEL_META,
+  ORDER_SERVICE_TYPE_META,
   ORDER_STAGE_META,
 } from '../utils/format.ts';
 
@@ -86,6 +88,7 @@ export const DailySalesView: React.FC<DailySalesViewProps> = ({
       whatsapp: { count: 0, total: 0 },
       ifood: { count: 0, total: 0 },
       '99food': { count: 0, total: 0 },
+      pdv: { count: 0, total: 0 },
     };
     for (const order of allDayOrders) {
       const ch = getOrderChannel(order.channel);
@@ -95,11 +98,20 @@ export const DailySalesView: React.FC<DailySalesViewProps> = ({
     return stats;
   }, [allDayOrders]);
 
+  const serviceStats = useMemo(() => {
+    const counts = { entrega: 0, retirada: 0, mesa: 0 };
+    for (const order of dailyOrders) {
+      counts[getOrderServiceType(order)] += 1;
+    }
+    return counts;
+  }, [dailyOrders]);
+
   const summary = useMemo(() => {
     let totalSold = 0;
     let totalPaid = 0;
     let totalPending = 0;
     let totalItemsCount = 0;
+    let totalDiscounts = 0;
 
     const itemBreakdown = new Map<
       string,
@@ -108,6 +120,7 @@ export const DailySalesView: React.FC<DailySalesViewProps> = ({
 
     for (const order of dailyOrders) {
       totalSold += order.total;
+      totalDiscounts += order.discountTotal ?? 0;
       if (order.payment.status === 'pago') {
         totalPaid += order.total;
       } else {
@@ -152,6 +165,7 @@ export const DailySalesView: React.FC<DailySalesViewProps> = ({
       totalPaid,
       totalPending,
       totalItemsCount,
+      totalDiscounts,
       averageTicket,
       productsSold,
     };
@@ -273,13 +287,14 @@ export const DailySalesView: React.FC<DailySalesViewProps> = ({
 
       {/* Channel Filter & Breakdown */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div className="flex items-center p-1 bg-stone-200/75 rounded-lg self-start">
+        <div className="flex items-center p-1 bg-stone-200/75 rounded-lg self-start overflow-x-auto">
           {(
             [
               { id: 'all', label: 'Todos os Canais', count: allDayOrders.length },
               { id: 'whatsapp', label: 'WhatsApp', count: channelStats.whatsapp.count },
               { id: 'ifood', label: 'iFood', count: channelStats.ifood.count },
               { id: '99food', label: '99Food', count: channelStats['99food'].count },
+              { id: 'pdv', label: 'PDV', count: channelStats.pdv.count },
             ] as const
           ).map((tab) => (
             <button
@@ -300,7 +315,7 @@ export const DailySalesView: React.FC<DailySalesViewProps> = ({
           ))}
         </div>
 
-        <div className="flex flex-wrap items-center gap-4 text-xs text-stone-600">
+        <div className="flex flex-wrap items-center gap-3 text-xs text-stone-600">
           <span>
             WhatsApp:{' '}
             <strong className="font-mono text-emerald-700 tabular-nums">
@@ -319,6 +334,13 @@ export const DailySalesView: React.FC<DailySalesViewProps> = ({
             99Food:{' '}
             <strong className="font-mono text-amber-700 tabular-nums">
               {formatBRL(channelStats['99food'].total)}
+            </strong>
+          </span>
+          <span aria-hidden="true">·</span>
+          <span>
+            PDV:{' '}
+            <strong className="font-mono text-stone-800 tabular-nums">
+              {formatBRL(channelStats.pdv.total)}
             </strong>
           </span>
         </div>
@@ -341,8 +363,8 @@ export const DailySalesView: React.FC<DailySalesViewProps> = ({
           <div className="text-2xl font-mono font-semibold text-stone-900 tabular-nums mt-1">
             {dailyOrders.length}
           </div>
-          <div className="text-[11px] text-stone-500 mt-1">
-            Pedidos válidos registrados
+          <div className="text-[11px] text-stone-500 mt-1 font-mono tabular-nums">
+            Entrega: {serviceStats.entrega} · Retirada: {serviceStats.retirada} · Mesa: {serviceStats.mesa}
           </div>
         </div>
 
@@ -361,8 +383,8 @@ export const DailySalesView: React.FC<DailySalesViewProps> = ({
           <div className="text-2xl font-mono font-semibold text-stone-900 tabular-nums mt-1">
             {formatBRL(summary.averageTicket)}
           </div>
-          <div className="text-[11px] text-stone-500 mt-1">
-            Média por pedido
+          <div className="text-[11px] text-stone-500 mt-1 font-mono tabular-nums">
+            Descontos/Cashback: {formatBRL(summary.totalDiscounts)}
           </div>
         </div>
       </div>
@@ -461,7 +483,10 @@ export const DailySalesView: React.FC<DailySalesViewProps> = ({
                         )}
                       </td>
                       <td className={`py-3 px-4 font-semibold ${chMeta.textColor}`}>
-                        {chMeta.label}
+                        <div>{chMeta.shortLabel}</div>
+                        <div className="text-[10px] font-normal text-stone-500">
+                          {ORDER_SERVICE_TYPE_META[getOrderServiceType(order)].shortLabel}
+                        </div>
                       </td>
                       <td className="py-3 px-4 font-mono text-stone-500 tabular-nums">
                         {formatTime(order.createdAt)}

@@ -1,4 +1,6 @@
-export type OrderChannel = 'whatsapp' | 'ifood' | '99food';
+export type OrderChannel = 'whatsapp' | 'ifood' | '99food' | 'pdv';
+
+export type OrderServiceType = 'entrega' | 'retirada' | 'mesa';
 
 export type OrderStage =
   | 'recebido'
@@ -47,6 +49,8 @@ export interface Customer {
   registeredAt: string;
   totalOrders: number;
   totalSpent: number;
+  cashbackBalance?: number;
+  cashbackExpiresAt?: string;
 }
 
 export interface OrderItem {
@@ -69,12 +73,16 @@ export interface PaymentPayload {
   transactionId: string;
   paidAt?: string;
   expiresAt?: string;
+  changeFor?: number;
+  changeAmount?: number;
 }
 
 export interface Order {
   id: string;
   code: string;
   channel?: OrderChannel;
+  serviceType?: OrderServiceType;
+  tableNumber?: string;
   externalOrderId?: string;
   externalDisplayId?: string;
   pickupCode?: string;
@@ -88,11 +96,19 @@ export interface Order {
   items: OrderItem[];
   subtotal: number;
   deliveryFee: number;
+  discountTotal?: number;
+  couponCode?: string;
+  cashbackUsed?: number;
+  cashbackEarned?: number;
+  progressiveDiscount?: number;
   total: number;
   stage: OrderStage;
   payment: PaymentPayload;
   estimatedMinutes: number;
+  driverId?: string;
   riderName?: string;
+  riderPhone?: string;
+  dispatchedToDriverAt?: string;
   createdAt: string;
   updatedAt: string;
   timeline: {
@@ -100,6 +116,45 @@ export interface Order {
     timestamp: string;
     note: string;
   }[];
+}
+
+export interface DeliveryDriver {
+  id: string;
+  name: string;
+  phone: string;
+  vehicle: string;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface Coupon {
+  id: string;
+  code: string;
+  type: 'percent' | 'fixed';
+  value: number;
+  minOrder?: number;
+  active: boolean;
+  usageCount: number;
+  createdAt: string;
+}
+
+export interface ProgressiveTier {
+  id: string;
+  minItems: number;
+  discountPercent: number;
+}
+
+export interface CashbackConfig {
+  enabled: boolean;
+  percent: number;
+  validityDays: number;
+  minOrderValue: number;
+}
+
+export interface PromotionsConfig {
+  cashback: CashbackConfig;
+  progressiveEnabled: boolean;
+  progressiveTiers: ProgressiveTier[];
 }
 
 export type MessageAttachment =
@@ -178,4 +233,7 @@ export interface AppSnapshot {
   conversations: Conversation[];
   messages: ChatMessage[];
   orders: Order[];
+  drivers: DeliveryDriver[];
+  coupons: Coupon[];
+  promotions: PromotionsConfig;
 }
